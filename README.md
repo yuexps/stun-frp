@@ -87,6 +87,7 @@ CHECK_INTERVAL = 300               # DNS 检查间隔(秒)
 2. **配置 FRP Token**
 
 编辑 `Stun_Frps/Linux(Windows)/frps.toml` 配置你的服务器Token
+
 编辑 `Stun_Frpc/Linux(Windows)/frpc.toml` 配置你的客户端Token
 
 3. **运行Frpc客户端**
