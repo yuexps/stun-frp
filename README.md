@@ -2,6 +2,7 @@
 
 基于 STUN 内网穿透的 FRP 工具，无需公网 IP，通过 STUN 打洞技术实现服务端和客户端的自动连接。
 
+
 ## 工作原理
 
 1. **服务端 STUN 打洞** → 在 NAT1 内网环境，Natter 能通过 STUN 协议获取公网可访问的端口
@@ -10,6 +11,7 @@
 4. **动态适应变化** → 当服务端端口变化时，自动更新 DNS 并通知客户端重新连接
 
 **核心优势**：传统 FRP 需要服务端有公网 IP，本工具通过 STUN 打洞技术，让内网服务器也能作为 FRP 服务端运行。
+
 
 ## 项目结构
 
@@ -25,6 +27,7 @@
     ├── Windows/        # Windows 版本 frps
     └── Linux/          # Linux 版本 frps
 ```
+
 
 ## 快速开始
 
@@ -56,7 +59,7 @@ CLOUDFLARE_API_TOKEN = 'your_token_here'   # 区域 API Token
 CHECK_INTERVAL = 3600                      # 检查间隔(秒)
 ```
 
-3. **运行服务端**
+3. **运行Frps服务端**
 
 ```bash
 cd Stun_Frps
@@ -80,17 +83,13 @@ CHECK_INTERVAL = 300               # DNS 检查间隔(秒)
 编辑 `Stun_Frps/Linux(Windows)/frps.toml` 配置你的服务器Token
 编辑 `Stun_Frpc/Linux(Windows)/frpc.toml` 配置你的客户端Token
 
-3. **运行客户端**
+3. **运行Frpc客户端**
 
 ```bash
-# Windows
-cd Stun_Frpc
-python Stun_Frpc.py
-
-# Linux
 cd Stun_Frpc
 python3 Stun_Frpc.py
 ```
+
 
 ## 注意事项
 
@@ -99,6 +98,7 @@ python3 Stun_Frpc.py
 - Cloudflare API Token 需要有 DNS 编辑权限（区域 DNS Token）
 - 建议在稳定网络环境下运行，避免因 NAT 映射失效导致频繁重启
 - DNS TXT 记录格式："server_port=12345,client_local_port1=7001,client_public_port1=12346"
+
 
 ## 相关链接
 
