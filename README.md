@@ -28,6 +28,12 @@
 
 ## 快速开始
 
+### Python 依赖 （Python 3.12）
+
+```bash
+pip install dnspython toml requests
+```
+
 ### 服务端部署
 
 1. **配置端口**
@@ -46,18 +52,13 @@ client_port2=0          # 客户端2端口
 
 ```python
 DOMAIN = 'frp.test.com'                    # 你的域名
-CLOUDFLARE_API_TOKEN = 'your_token_here'   # API Token
+CLOUDFLARE_API_TOKEN = 'your_token_here'   # 区域 API Token
 CHECK_INTERVAL = 3600                      # 检查间隔(秒)
 ```
 
 3. **运行服务端**
 
 ```bash
-# Windows
-cd Stun_Frps
-python Stun_Frps.py
-
-# Linux
 cd Stun_Frps
 python3 Stun_Frps.py
 ```
@@ -89,14 +90,6 @@ python Stun_Frpc.py
 # Linux
 cd Stun_Frpc
 python3 Stun_Frpc.py
-```
-
-## 依赖项
-
-### Python 依赖 （Python 3.12）
-
-```bash
-pip install dnspython toml requests
 ```
 
 ## 注意事项
