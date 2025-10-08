@@ -31,6 +31,12 @@
 
 ## 快速开始
 
+### 拉取项目
+
+```bash
+git clone https://github.com/yuexps/stun-frp.git
+```
+
 ### Python 依赖 （Python 3.12）
 
 ```bash
