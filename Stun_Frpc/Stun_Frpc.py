@@ -6,45 +6,61 @@ import subprocess
 import re
 import os
 
-CLIENT_NUMBER = 1  # 客户端编号
-DOMAIN = 'frp.test.com'  # 域名
+CLIENT_NUMBER = 1  # 客户端编号（必填）
+DOMAIN = 'frp.test.com'  # 域名(必填)
 FRPC_EXE_PATH = ''  # frpc可执行文件路径(默认同目录下的Windows/Linux子目录)
 FRPC_CONFIG_PATH = ''  # frpc.toml路径（默认同目录下的Windows/Linux子目录）
 CHECK_INTERVAL = 300  # 检查间隔（秒）
 
 frpc_process = None
+frpc_connect_port = None
 
 def parse_txt_record(domain):
     try:
-        # 创建新的 resolver 避免 DNS 缓存
         resolver = dns.resolver.Resolver()
         resolver.cache = None  # 禁用缓存
-        resolver.nameservers = ['223.5.5.5', '8.8.8.8'] #内置DNS
+        resolver.nameservers = ['223.5.5.5', '8.8.8.8']
         
         answers = resolver.resolve(domain, 'TXT')
         for rdata in answers:
             for txt_string in rdata.strings:
                 txt = txt_string.decode()
                 
-                client_key = f'client_port{CLIENT_NUMBER}'
-                match = re.search(rf'server_port=(\d+).*{client_key}=(\d+)', txt)
-                if match:
-                    server_port = int(match.group(1))
-                    remote_port = int(match.group(2))
-                    print(f"[DNS] 成功解析: server_port={server_port}, {client_key}={remote_port}")
-                    return server_port, remote_port
+                # client_local_port 对应 frpc.toml 内的 remotePort
+                # client_public_port 为公网连接端口
+                local_port_key = f'client_local_port{CLIENT_NUMBER}'
+                public_port_key = f'client_public_port{CLIENT_NUMBER}'
+                
+                # 解析 server_port
+                server_match = re.search(r'server_port=(\d+)', txt)
+                # 解析 client_local_port (frpc remotePort)
+                local_match = re.search(rf'{local_port_key}=(\d+)', txt)
+                # 解析 client_public_port (公网连接端口)
+                public_match = re.search(rf'{public_port_key}=(\d+)', txt)
+                
+                if server_match and local_match and public_match:
+                    server_port = int(server_match.group(1))
+                    remote_port = int(local_match.group(1))
+                    public_port = int(public_match.group(1))
+                    print(f"[DNS] 成功解析: server_port={server_port}, {local_port_key}={remote_port}, {public_port_key}={public_port}")
+                    return server_port, remote_port, public_port
         
-        print(f"[WARN] 未找到 client_port{CLIENT_NUMBER} 的配置，请检查 DNS TXT 记录")
+        print(f"[WARN] 未找到客户端 {CLIENT_NUMBER} 的配置，请检查 DNS TXT 记录")
     except Exception as e:
         print(f"[ERROR] DNS 查询失败: {e}")
-    return None, None
+    return None, None, None
 
-def update_frpc_config(server_port, remote_port):
+def update_frpc_config(server_port, remote_port, public_port):
+    global frpc_connect_port
     try:
         config = toml.load(FRPC_CONFIG_PATH)
         old_server = config.get('serverPort')
         old_addr = config.get('serverAddr')
-        proxies = config.get('proxies', [])
+        
+        # 获取当前代理配置
+        old_remote_port = None
+        if 'proxies' in config and len(config['proxies']) > 0:
+            old_remote_port = config['proxies'][0].get('remotePort')
 
         changed = False
         if old_server != server_port:
@@ -53,10 +69,17 @@ def update_frpc_config(server_port, remote_port):
         if old_addr != DOMAIN:
             config['serverAddr'] = DOMAIN
             changed = True
-        if proxies and isinstance(proxies, list):
-            if proxies[0].get('remotePort') != remote_port:
-                proxies[0]['remotePort'] = remote_port
+        
+        # 更新代理远程端口（对应 client_local_port）
+        if old_remote_port != remote_port:
+            if 'proxies' in config and len(config['proxies']) > 0:
+                config['proxies'][0]['remotePort'] = remote_port
                 changed = True
+        
+        # 更新公网连接端口（对应 client_public_port）
+        if frpc_connect_port != public_port:
+            frpc_connect_port = public_port # 记录当前公网端口
+            changed = True
 
         if not changed:
             return False  # 无变化
@@ -64,7 +87,7 @@ def update_frpc_config(server_port, remote_port):
         with open(FRPC_CONFIG_PATH, 'w') as f:
             toml.dump(config, f)
 
-        print(f"[UPDATE] serverAddr={DOMAIN}, serverPort={server_port}, proxies[0].remotePort={remote_port}")
+        print(f"[UPDATE] serverAddr={DOMAIN}, serverPort={server_port}, proxies[0].remotePort={remote_port}, 公网端口={public_port}")
         return True
     except Exception as e:
         print(f"更新配置文件失败: {e}")
@@ -94,10 +117,26 @@ def start_frpc():
 def restart_frpc():
     global frpc_process
     try:
-        if frpc_process and frpc_process.poll() is None:
-            frpc_process.terminate()
-            frpc_process.wait(timeout=10)
-            print("[RESTART] frpc 已关闭，准备重启")
+        # 检查进程是否存在且正在运行
+        if frpc_process:
+            if frpc_process.poll() is None:
+                print("[RESTART] 正在终止 frpc 进程...")
+                frpc_process.terminate()
+                try:
+                    frpc_process.wait(timeout=5)
+                    print("[RESTART] frpc 进程已正常终止")
+                except subprocess.TimeoutExpired:
+                    print("[RESTART] 进程未响应终止信号，强制结束...")
+                    frpc_process.kill()
+                    frpc_process.wait(timeout=5)
+                    print("[RESTART] frpc 进程已强制结束")
+            else:
+                print("[RESTART] frpc 进程已不在运行")
+            
+            # 额外等待一小段时间确保端口释放
+            time.sleep(2)
+        
+        # 启动新进程
         start_frpc()
         print("[RESTART] frpc 已重启")
     except Exception as e:
@@ -111,9 +150,11 @@ def main():
     
     # 首次启动前先检查并更新配置
     print("\n[INIT] 首次检查 DNS TXT 记录...")
-    server_port, remote_port = parse_txt_record(DOMAIN)
-    if server_port and remote_port:
-        update_frpc_config(server_port, remote_port)
+    server_port, remote_port, public_port = parse_txt_record(DOMAIN)
+    if server_port:
+        update_frpc_config(server_port, remote_port, public_port)
+
+    print(f"[INFO] 连接地址: {DOMAIN}:{frpc_connect_port if frpc_connect_port else '未知'}")
     
     # 启动 frpc
     start_frpc()
@@ -124,9 +165,9 @@ def main():
             time.sleep(CHECK_INTERVAL)
             print(f"\n[CHECK] 定期检查端口配置...")
             
-            server_port, remote_port = parse_txt_record(DOMAIN)
-            if server_port and remote_port:
-                if update_frpc_config(server_port, remote_port):
+            server_port, remote_port, public_port = parse_txt_record(DOMAIN)
+            if server_port and remote_port and public_port:
+                if update_frpc_config(server_port, remote_port, public_port):
                     restart_frpc()
                 else:
                     print("[OK] 配置未改变，无需重启")
