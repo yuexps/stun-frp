@@ -9,7 +9,7 @@ import requests
 
 # 配置项
 DOMAIN = 'frp.test.com'  # Cloudflare托管的域名
-CLOUDFLARE_API_TOKEN = 'cloudflare_api_token'  # Cloudflare 区域 DNS Token https://dash.cloudflare.com/profile/api-tokens
+CLOUDFLARE_API_TOKEN = ''  # Cloudflare 区域 DNS Token https://dash.cloudflare.com/profile/api-tokens
 CHECK_INTERVAL = 3600  # 定期检查端口映射是否有效的间隔（秒）
 
 # 路径配置
@@ -177,7 +177,7 @@ def run_natter_for_port(port_name, local_port=0, max_retries=3):
 def update_cloudflare_txt_record(port_mapping):
     """
     更新Cloudflare DNS TXT记录
-    port_mapping: dict, 例如 {'server_port': 12345, 'client_port1': 12346, 'client_port2': 12347}
+    port_mapping: dict, 例如 {'server_port': {'local': 7000, 'public': 12345}, 'client_port1': {'local': 7001, 'public': 12346}}
     """
     global zone_id
     
@@ -187,7 +187,19 @@ def update_cloudflare_txt_record(port_mapping):
             return False
         
         # 构造TXT记录内容
-        txt_content = ','.join([f"{k}={v}" for k, v in port_mapping.items()])
+        # 格式: server_port=public_port, client_local_portX=local_port,client_public_portX=public_port
+        txt_parts = []
+        for port_name, ports in port_mapping.items():
+            if port_name == 'server_port':
+                # server_port 记录公网端口
+                txt_parts.append(f"{port_name}={ports['public']}")
+            else:
+                # 其他端口记录本地端口和公网端口
+                # 从 client_portX 提取 portX 部分
+                port_suffix = port_name.replace('client_', '')
+                txt_parts.append(f"client_local_{port_suffix}={ports['local']}")
+                txt_parts.append(f"client_public_{port_suffix}={ports['public']}")
+        txt_content = '"' + ','.join(txt_parts) + '"'
         print(f"[CLOUDFLARE] 准备更新 TXT 记录: {txt_content}")
         
         headers = {
@@ -357,7 +369,8 @@ def update_frps_config(local_port):
     try:
         # 读取 frps.toml
         with open(FRPS_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            config = toml.load(f)
+            content = f.read()
+            config = toml.loads(content)
         
         # 检查是否需要更新
         old_bind_port = config.get('bindPort')
@@ -370,7 +383,8 @@ def update_frps_config(local_port):
         
         # 写回文件
         with open(FRPS_CONFIG_PATH, 'w', encoding='utf-8') as f:
-            toml.dump(config, f)
+            content = toml.dumps(config)
+            f.write(content)
         
         print(f"[UPDATE] frps.toml 已更新: bindPort = {old_bind_port} -> {local_port}")
         return True 
@@ -428,7 +442,10 @@ def perform_stun_and_update():
         public_ip, public_port, actual_local_port, process = run_natter_for_port(port_name, local_port)
         
         if public_port and process:
-            port_mapping[port_name] = public_port
+            port_mapping[port_name] = {
+                'local': actual_local_port,
+                'public': public_port
+            }
             natter_processes[port_name] = {
                 'process': process,
                 'public_ip': public_ip,

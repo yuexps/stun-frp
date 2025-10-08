@@ -1,7 +1,5 @@
 server_port=7000
 # frps服务器端口
 
-client_port1=0
-client_port2=0
+client_port1=7001
 # frpc客户端使用端口（数字1是客户端编号）
-# client_port1=0则不指定端口（自动分配）
