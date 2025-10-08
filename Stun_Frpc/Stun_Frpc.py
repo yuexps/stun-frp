@@ -19,6 +19,7 @@ def parse_txt_record(domain):
         # 创建新的 resolver 避免 DNS 缓存
         resolver = dns.resolver.Resolver()
         resolver.cache = None  # 禁用缓存
+        resolver.nameservers = ['223.5.5.5', '8.8.8.8'] #内置DNS
         
         answers = resolver.resolve(domain, 'TXT')
         for rdata in answers:
