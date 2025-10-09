@@ -9,4 +9,4 @@ remotePort = 0
 
 [auth]
 method = "token"
-token = "yuexps_frp"
+token = "frp"

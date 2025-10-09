@@ -1,6 +1,5 @@
 serverAddr = "frp.test.com"
 serverPort = 0
-
 [[proxies]]
 name = "Minecraft_java"
 type = "tcp"
@@ -9,4 +8,4 @@ remotePort = 0
 
 [auth]
 method = "token"
-token = "yuexps_frp"
+token = "frp"

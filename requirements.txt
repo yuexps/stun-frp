@@ -1,0 +1,14 @@
+# Python 依赖包列表
+# 使用命令安装: pip install -r requirements.txt
+
+# DNS 解析
+dnspython>=2.4.0
+
+# TOML 配置文件解析
+toml>=0.10.2
+
+# HTTP 请求库 (用于 Cloudflare API)
+requests>=2.31.0
+
+# 环境变量配置 (可选，推荐使用)
+python-dotenv>=1.0.0

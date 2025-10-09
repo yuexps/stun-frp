@@ -7,10 +7,18 @@ import time
 import re
 import requests
 
-# 配置项
-DOMAIN = 'frp.test.com'  # Cloudflare托管的域名
-CLOUDFLARE_API_TOKEN = ''  # Cloudflare 区域 DNS Token https://dash.cloudflare.com/profile/api-tokens
-CHECK_INTERVAL = 3600  # 定期检查端口映射是否有效的间隔（秒）
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("未安装 python-dotenv 库，跳过读取 .env 环境变量")
+    pass
+
+# 配置项 (从环境变量读取,若未设置则使用默认值)
+DOMAIN = os.getenv('STUN_DOMAIN', '')  # Cloudflare托管的域名
+CLOUDFLARE_API_TOKEN = os.getenv('CLOUDFLARE_API_TOKEN', '')  # Cloudflare 区域 DNS Token
+CHECK_INTERVAL = int(os.getenv('STUN_CHECK_INTERVAL', '300'))  # 定期检查间隔(秒)
+FRP_TOKEN = os.getenv('FRP_AUTH_TOKEN', 'stun_frp')  # FRP 认证 Token
 
 # 路径配置
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -363,7 +371,7 @@ def update_cloudflare_a_record(public_ip):
 
 def update_frps_config(local_port):
     """
-    更新 frps.toml 配置文件中的 bindPort
+    更新 frps.toml 配置文件中的 bindPort 和 auth.token
     local_port: natter 映射的本地端口(来自 Stun_Port.toml 的 server_port)
     """
     try:
@@ -372,21 +380,35 @@ def update_frps_config(local_port):
             content = f.read()
             config = toml.loads(content)
         
-        # 检查是否需要更新
+        changed = False
+        
+        # 检查并更新 bindPort
         old_bind_port = config.get('bindPort')
+        if old_bind_port != local_port:
+            config['bindPort'] = local_port
+            changed = True
+            print(f"[UPDATE] frps.toml bindPort: {old_bind_port} -> {local_port}")
         
-        if old_bind_port == local_port:
+        # 检查并更新 auth.token (如果环境变量中配置了)
+        if FRP_TOKEN:
+            if 'auth' not in config:
+                config['auth'] = {}
+            
+            old_token = config['auth'].get('token', '')
+            if old_token != FRP_TOKEN:
+                config['auth']['method'] = 'token'
+                config['auth']['token'] = FRP_TOKEN
+                changed = True
+                print(f"[UPDATE] frps.toml auth.token 已更新")
+        
+        if not changed:
             return True  # 无变化
-        
-        # 更新 bindPort
-        config['bindPort'] = local_port
         
         # 写回文件
         with open(FRPS_CONFIG_PATH, 'w', encoding='utf-8') as f:
             content = toml.dumps(config)
             f.write(content)
         
-        print(f"[UPDATE] frps.toml 已更新: bindPort = {old_bind_port} -> {local_port}")
         return True 
         
     except Exception as e:
@@ -412,9 +434,22 @@ def restart_frps():
     global frps_process
     try:
         if frps_process and frps_process.poll() is None:
+            print("[RESTART] 正在关闭 frps...")
             frps_process.terminate()
-            frps_process.wait(timeout=10)
-            print("[RESTART] frps 已关闭")
+            try:
+                frps_process.wait(timeout=10)
+                print("[RESTART] frps 已正常关闭")
+            except subprocess.TimeoutExpired:
+                print("[RESTART] frps 未响应终止信号，强制结束...")
+                frps_process.kill()
+                frps_process.wait(timeout=5)
+                print("[RESTART] frps 已强制结束")
+            
+            # 等待服务器完全释放所有代理连接
+            # 这对于避免"proxy already exists"错误至关重要
+            print("[RESTART] 等待服务器完全关闭并释放资源...")
+            time.sleep(8)  # 增加到8秒,确保所有客户端检测到断开
+        
         start_frps()
         print("[RESTART] frps 已重启")
     except Exception as e:
@@ -437,6 +472,7 @@ def perform_stun_and_update():
     
     # 2. 为每个端口执行STUN打洞
     port_mapping = {}
+    failed_ports = []  # 记录失败的端口
     
     for port_name, local_port in port_config.items():
         public_ip, public_port, actual_local_port, process = run_natter_for_port(port_name, local_port)
@@ -454,28 +490,36 @@ def perform_stun_and_update():
             }
         else:
             print(f"[ERROR] {port_name} 打洞失败，跳过")
-            return False
+            failed_ports.append(port_name)
     
     if not port_mapping:
         print("[ERROR] 所有端口打洞均失败")
         return False
     
+    # 检查 server_port 是否成功(这是必须的)
+    if 'server_port' not in port_mapping:
+        print("[ERROR] server_port 打洞失败，无法启动服务")
+        return False
+    
+    if failed_ports:
+        print(f"[WARN] 以下端口打洞失败: {', '.join(failed_ports)}")
+    
     print(f"\n[SUCCESS] 端口映射完成: {port_mapping}")
     
     # 3. 更新 frps.toml 配置
-    if 'server_port' in natter_processes:
-        server_local_port = natter_processes['server_port']['local_port']
-        if not update_frps_config(server_local_port):
-            print("[ERROR] 更新 frps 配置失败")
-            return False
-    else:
-        print("[ERROR] 未找到 server_port 的映射")
+    server_local_port = natter_processes['server_port']['local_port']
+    if not update_frps_config(server_local_port):
+        print("[ERROR] 更新 frps 配置失败")
         return False
     
-    # 4. 启动 frps 服务
+    # 4. 启动/重启 frps 服务
     if frps_process is None or frps_process.poll() is not None:
         start_frps()
         print(f"[INFO] frps 已启动，监听端口: {server_local_port}")
+    else:
+        # frps 正在运行,需要重启以应用新配置
+        restart_frps()
+        print(f"[INFO] frps 已重启，监听端口: {server_local_port}")
     
     # 5. 更新 Cloudflare DNS 记录
     # 获取 server_port 的公网 IP
@@ -510,6 +554,30 @@ def check_natter_processes():
     return True
 
 
+def cleanup_natter_processes():
+    """清理所有 natter 进程"""
+    global natter_processes
+    
+    print("[CLEANUP] 清理 natter 进程...")
+    for port_name, info in natter_processes.items():
+        try:
+            process = info['process']
+            if process.poll() is None:
+                print(f"[CLEANUP] 终止 {port_name} 的 natter 进程")
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+        except Exception as e:
+            print(f"[WARN] 清理 {port_name} 的 natter 进程失败: {e}")
+    
+    natter_processes.clear()
+    # 等待端口释放
+    time.sleep(2)
+
+
 def main():
     """主循环"""
     print(f"[INFO] Stun_Frps 服务启动")
@@ -535,19 +603,26 @@ def main():
             if not processes_ok:
                 print("[ACTION] 检测到 natter 进程异常或端口变化，重新执行打洞流程")
                 
-                # 清理现有进程
-                for info in natter_processes.values():
+                # 先停止 frps 释放端口
+                if frps_process and frps_process.poll() is None:
+                    print("[CLEANUP] 停止 frps 以释放端口...")
                     try:
-                        if info['process'].poll() is None:
-                            info['process'].terminate()
-                    except:
-                        pass
-                natter_processes.clear()
+                        frps_process.terminate()
+                        frps_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        frps_process.kill()
+                        frps_process.wait()
+                    except Exception as e:
+                        print(f"[WARN] 停止 frps 失败: {e}")
+                    time.sleep(2)  # 等待端口完全释放
                 
-                # 重新打洞
+                # 清理现有进程(包括等待端口释放)
+                cleanup_natter_processes()
+                
+                # 重新打洞,即使失败也继续运行,下次检查时会再次尝试
                 if not perform_stun_and_update():
-                    print("[FATAL] 重新打洞失败，程序退出")
-                    break
+                    print("[WARN] 重新打洞失败，将在下次检查时继续尝试")
+                    # 不退出,继续循环
             else:
                 print("[OK] 所有 natter 进程运行正常")
                 
@@ -556,26 +631,25 @@ def main():
             break
         except Exception as e:
             print(f"[ERROR] 主循环异常: {e}")
+            import traceback
+            traceback.print_exc()
+            # 发生异常时也清理一下进程
+            cleanup_natter_processes()
+            print("[INFO] 等待下次检查...")
             time.sleep(60)
     
     # 清理资源
     print("[CLEANUP] 清理资源...")
-    for info in natter_processes.values():
-        try:
-            if info['process'].poll() is None:
-                info['process'].terminate()
-                info['process'].wait(timeout=5)
-        except:
-            pass
+    cleanup_natter_processes()
     
     if frps_process and frps_process.poll() is None:
         try:
             frps_process.terminate()
             frps_process.wait(timeout=5)
-        except:
-            pass
+        except Exception as e:
+            print(f"[WARN] 清理 frps 进程失败: {e}")
     
-    print("[EXIT] Stun_Frps 服务已停止")
+    print("[INFO] 实例已停止。")
 
 
 if __name__ == '__main__':
