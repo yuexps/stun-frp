@@ -56,11 +56,6 @@ def update_frpc_config(server_port, remote_port, public_port):
         config = toml.load(FRPC_CONFIG_PATH)
         old_server = config.get('serverPort')
         old_addr = config.get('serverAddr')
-        
-        # 获取当前代理配置
-        old_remote_port = None
-        if 'proxies' in config and len(config['proxies']) > 0:
-            old_remote_port = config['proxies'][0].get('remotePort')
 
         changed = False
         if old_server != server_port:
@@ -69,10 +64,13 @@ def update_frpc_config(server_port, remote_port, public_port):
         if old_addr != DOMAIN:
             config['serverAddr'] = DOMAIN
             changed = True
-        
-        # 更新代理远程端口（对应 client_local_port）
-        if old_remote_port != remote_port:
-            if 'proxies' in config and len(config['proxies']) > 0:
+
+        # 获取当前代理配置
+        old_remote_port = None
+        if 'proxies' in config and len(config['proxies']) > 0:
+            old_remote_port = config['proxies'][0].get('remotePort')
+            # 更新代理远程下发端口（对应 client_local_port）
+            if old_remote_port != remote_port:
                 config['proxies'][0]['remotePort'] = remote_port
                 changed = True
         
