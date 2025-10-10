@@ -71,10 +71,7 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         EOF
         
-        # 打包
-        cd ../release
-        tar -czf stun_frps_linux_x64.tar.gz stun_frps_linux_x64
-        ls -lh
+        ls -lh ../release/
     
     - name: Build and Package Stun_Frpc (Linux)
       if: matrix.platform == 'linux'
@@ -106,10 +103,7 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         EOF
         
-        # 打包
-        cd ../release
-        tar -czf stun_frpc_linux_x64.tar.gz stun_frpc_linux_x64
-        ls -lh
+        ls -lh ../release/
     
     - name: Build and Package Stun_Frps (Windows)
       if: matrix.platform == 'windows'
@@ -144,10 +138,7 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         "@ | Out-File -FilePath ..\release\stun_frps_windows_x64\README.txt -Encoding UTF8
         
-        # 打包
-        cd ..\release
-        Compress-Archive -Path stun_frps_windows_x64 -DestinationPath stun_frps_windows_x64.zip
-        dir
+        dir ..\release\
     
     - name: Build and Package Stun_Frpc (Windows)
       if: matrix.platform == 'windows'
@@ -179,17 +170,14 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         "@ | Out-File -FilePath ..\release\stun_frpc_windows_x64\README.txt -Encoding UTF8
         
-        # 打包
-        cd ..\release
-        Compress-Archive -Path stun_frpc_windows_x64 -DestinationPath stun_frpc_windows_x64.zip
-        dir
+        dir ..\release\
     
     - name: Upload Stun_Frps Package (Linux)
       if: matrix.platform == 'linux'
       uses: actions/upload-artifact@v4
       with:
         name: stun_frps_linux_x64
-        path: release/stun_frps_linux_x64.tar.gz
+        path: release/stun_frps_linux_x64/
         retention-days: 90
     
     - name: Upload Stun_Frpc Package (Linux)
@@ -197,7 +185,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: stun_frpc_linux_x64
-        path: release/stun_frpc_linux_x64.tar.gz
+        path: release/stun_frpc_linux_x64/
         retention-days: 90
     
     - name: Upload Stun_Frps Package (Windows)
@@ -205,7 +193,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: stun_frps_windows_x64
-        path: release/stun_frps_windows_x64.zip
+        path: release/stun_frps_windows_x64/
         retention-days: 90
     
     - name: Upload Stun_Frpc Package (Windows)
@@ -213,7 +201,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: stun_frpc_windows_x64
-        path: release/stun_frpc_windows_x64.zip
+        path: release/stun_frpc_windows_x64/
         retention-days: 90
 
   release:
@@ -229,6 +217,21 @@ jobs:
     
     - name: Display structure of downloaded files
       run: ls -R artifacts
+    
+    - name: Package artifacts for release
+      run: |
+        cd artifacts
+        
+        # 打包 Linux 版本为 tar.gz
+        tar -czf stun_frps_linux_x64.tar.gz -C stun_frps_linux_x64 .
+        tar -czf stun_frpc_linux_x64.tar.gz -C stun_frpc_linux_x64 .
+        
+        # 打包 Windows 版本为 zip
+        cd stun_frps_windows_x64 && zip -r ../stun_frps_windows_x64.zip . && cd ..
+        cd stun_frpc_windows_x64 && zip -r ../stun_frpc_windows_x64.zip . && cd ..
+        
+        # 显示打包结果
+        ls -lh *.tar.gz *.zip
     
     - name: Create Release
       id: create_release
@@ -266,7 +269,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frps_linux_x64/stun_frps_linux_x64.tar.gz
+        asset_path: ./artifacts/stun_frps_linux_x64.tar.gz
         asset_name: stun_frps_linux_x64.tar.gz
         asset_content_type: application/gzip
     
@@ -276,7 +279,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frpc_linux_x64/stun_frpc_linux_x64.tar.gz
+        asset_path: ./artifacts/stun_frpc_linux_x64.tar.gz
         asset_name: stun_frpc_linux_x64.tar.gz
         asset_content_type: application/gzip
     
@@ -286,7 +289,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frps_windows_x64/stun_frps_windows_x64.zip
+        asset_path: ./artifacts/stun_frps_windows_x64.zip
         asset_name: stun_frps_windows_x64.zip
         asset_content_type: application/zip
     
@@ -296,6 +299,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frpc_windows_x64/stun_frpc_windows_x64.zip
+        asset_path: ./artifacts/stun_frpc_windows_x64.zip
         asset_name: stun_frpc_windows_x64.zip
         asset_content_type: application/zip
