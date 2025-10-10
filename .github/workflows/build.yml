@@ -8,6 +8,17 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      create_release:
+        description: '是否创建 Release（需要填写版本号）'
+        required: false
+        type: boolean
+        default: false
+      version:
+        description: '版本号（如 v1.0.0）'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -42,7 +53,7 @@ jobs:
       if: matrix.platform == 'linux'
       run: |
         cd Stun_Frps
-        pyinstaller --onefile --name stun_frps_linux_x64 Stun_Frps.py
+        pyinstaller --onefile --icon=NONE --name stun_frps_linux_x64 Stun_Frps.py
         
         # 创建发布目录结构
         mkdir -p ../release/stun_frps_linux_x64/Linux
@@ -71,13 +82,16 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         EOF
         
-        ls -lh ../release/
+        # 打包
+        cd ../release
+        tar -czf stun_frps_linux_x64.tar.gz stun_frps_linux_x64
+        ls -lh
     
     - name: Build and Package Stun_Frpc (Linux)
       if: matrix.platform == 'linux'
       run: |
         cd Stun_Frpc
-        pyinstaller --onefile --name stun_frpc_linux_x64 Stun_Frpc.py
+        pyinstaller --onefile --icon=NONE --name stun_frpc_linux_x64 Stun_Frpc.py
         
         # 创建发布目录结构
         mkdir -p ../release/stun_frpc_linux_x64/Linux
@@ -103,13 +117,16 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         EOF
         
-        ls -lh ../release/
+        # 打包
+        cd ../release
+        tar -czf stun_frpc_linux_x64.tar.gz stun_frpc_linux_x64
+        ls -lh
     
     - name: Build and Package Stun_Frps (Windows)
       if: matrix.platform == 'windows'
       run: |
         cd Stun_Frps
-        pyinstaller --onefile --name stun_frps_windows_x64 Stun_Frps.py
+        pyinstaller --onefile --icon=NONE --name stun_frps_windows_x64 Stun_Frps.py
         
         # 创建发布目录结构
         New-Item -ItemType Directory -Force -Path ..\release\stun_frps_windows_x64\Windows
@@ -138,13 +155,16 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         "@ | Out-File -FilePath ..\release\stun_frps_windows_x64\README.txt -Encoding UTF8
         
-        dir ..\release\
+        # 打包
+        cd ..\release
+        Compress-Archive -Path stun_frps_windows_x64\* -DestinationPath stun_frps_windows_x64.zip
+        dir
     
     - name: Build and Package Stun_Frpc (Windows)
       if: matrix.platform == 'windows'
       run: |
         cd Stun_Frpc
-        pyinstaller --onefile --name stun_frpc_windows_x64 Stun_Frpc.py
+        pyinstaller --onefile --icon=NONE --name stun_frpc_windows_x64 Stun_Frpc.py
         
         # 创建发布目录结构
         New-Item -ItemType Directory -Force -Path ..\release\stun_frpc_windows_x64\Windows
@@ -170,14 +190,17 @@ jobs:
         详细文档: https://github.com/yuexps/stun-frp
         "@ | Out-File -FilePath ..\release\stun_frpc_windows_x64\README.txt -Encoding UTF8
         
-        dir ..\release\
+        # 打包
+        cd ..\release
+        Compress-Archive -Path stun_frpc_windows_x64\* -DestinationPath stun_frpc_windows_x64.zip
+        dir
     
     - name: Upload Stun_Frps Package (Linux)
       if: matrix.platform == 'linux'
       uses: actions/upload-artifact@v4
       with:
         name: stun_frps_linux_x64
-        path: release/stun_frps_linux_x64/
+        path: release/stun_frps_linux_x64.tar.gz
         retention-days: 90
     
     - name: Upload Stun_Frpc Package (Linux)
@@ -185,7 +208,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: stun_frpc_linux_x64
-        path: release/stun_frpc_linux_x64/
+        path: release/stun_frpc_linux_x64.tar.gz
         retention-days: 90
     
     - name: Upload Stun_Frps Package (Windows)
@@ -193,7 +216,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: stun_frps_windows_x64
-        path: release/stun_frps_windows_x64/
+        path: release/stun_frps_windows_x64.zip
         retention-days: 90
     
     - name: Upload Stun_Frpc Package (Windows)
@@ -201,13 +224,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: stun_frpc_windows_x64
-        path: release/stun_frpc_windows_x64/
+        path: release/stun_frpc_windows_x64.zip
         retention-days: 90
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
     
     steps:
     - name: Download all artifacts
@@ -218,20 +241,14 @@ jobs:
     - name: Display structure of downloaded files
       run: ls -R artifacts
     
-    - name: Package artifacts for release
+    - name: Set version
+      id: set_version
       run: |
-        cd artifacts
-        
-        # 打包 Linux 版本为 tar.gz
-        tar -czf stun_frps_linux_x64.tar.gz -C stun_frps_linux_x64 .
-        tar -czf stun_frpc_linux_x64.tar.gz -C stun_frpc_linux_x64 .
-        
-        # 打包 Windows 版本为 zip
-        cd stun_frps_windows_x64 && zip -r ../stun_frps_windows_x64.zip . && cd ..
-        cd stun_frpc_windows_x64 && zip -r ../stun_frpc_windows_x64.zip . && cd ..
-        
-        # 显示打包结果
-        ls -lh *.tar.gz *.zip
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+        fi
     
     - name: Create Release
       id: create_release
@@ -239,8 +256,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
+        tag_name: ${{ steps.set_version.outputs.version }}
+        release_name: Release ${{ steps.set_version.outputs.version }}
         body: |
           ## 📦 下载说明
           
@@ -269,7 +286,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frps_linux_x64.tar.gz
+        asset_path: ./artifacts/stun_frps_linux_x64/stun_frps_linux_x64.tar.gz
         asset_name: stun_frps_linux_x64.tar.gz
         asset_content_type: application/gzip
     
@@ -279,7 +296,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frpc_linux_x64.tar.gz
+        asset_path: ./artifacts/stun_frpc_linux_x64/stun_frpc_linux_x64.tar.gz
         asset_name: stun_frpc_linux_x64.tar.gz
         asset_content_type: application/gzip
     
@@ -289,7 +306,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frps_windows_x64.zip
+        asset_path: ./artifacts/stun_frps_windows_x64/stun_frps_windows_x64.zip
         asset_name: stun_frps_windows_x64.zip
         asset_content_type: application/zip
     
@@ -299,6 +316,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frpc_windows_x64.zip
+        asset_path: ./artifacts/stun_frpc_windows_x64/stun_frpc_windows_x64.zip
         asset_name: stun_frpc_windows_x64.zip
         asset_content_type: application/zip
