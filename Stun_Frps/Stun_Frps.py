@@ -1159,8 +1159,6 @@ def main():
                 logger.info("✅ 所有 natter 进程运行正常")
                 
         except KeyboardInterrupt:
-            logger.info("")
-            logger.info("⚠️  接收到退出信号，正在清理...")
             break
         except Exception as e:
             logger.error(f"❌ 主循环异常: {e}", exc_info=True)
@@ -1170,19 +1168,29 @@ def main():
             time.sleep(60)
     
     # 清理资源
-    logger.info("🧹 清理资源...")
-    cleanup_natter_processes()
-    
-    if frps_process and frps_process.poll() is None:
-        logger.info("🛑 停止 frps 进程...")
-        safe_terminate_process(frps_process, "frps", timeout_terminate=5, timeout_kill=2)
-    
-    logger.info("")
-    logger.info("="*70)
-    logger.info("👋 服务已停止")
-    logger.info("="*70)
-    logger.info("")
+    try:
+        logger.info("")
+        logger.info("⚠️  接收到退出信号，正在清理...")
+        logger.info("🧹 清理资源...")
+        cleanup_natter_processes()
+        
+        if frps_process and frps_process.poll() is None:
+            logger.info("🛑 停止 frps 进程...")
+            safe_terminate_process(frps_process, "frps", timeout_terminate=5, timeout_kill=2)
+        
+        logger.info("")
+        logger.info("="*70)
+        logger.info("👋 服务已停止")
+        logger.info("="*70)
+        logger.info("")
+    except:
+        # 清理过程中忽略所有异常，确保能正常退出
+        pass
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # 最外层拦截，确保完成清理流程
+        pass
