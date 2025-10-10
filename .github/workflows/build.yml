@@ -3,22 +3,8 @@ name: Build Executables
 on:
   push:
     branches: [ main ]
-    tags:
-      - 'v*'
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
-    inputs:
-      create_release:
-        description: '是否创建 Release（需要填写版本号）'
-        required: false
-        type: boolean
-        default: false
-      version:
-        description: '版本号（如 v1.0.0）'
-        required: false
-        type: string
-        default: ''
 
 jobs:
   build:
@@ -230,9 +216,14 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
     
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
@@ -241,33 +232,35 @@ jobs:
     - name: Display structure of downloaded files
       run: ls -R artifacts
     
-    - name: Set version
-      id: set_version
+    - name: Delete old pre-release
+      continue-on-error: true
       run: |
-        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        else
-          echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
+        gh release delete pre --yes || true
+        git push origin :refs/tags/pre || true
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ github.token }}
+    
+    - name: Create Pre-Release and Upload Assets
+      uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ steps.set_version.outputs.version }}
-        release_name: Release ${{ steps.set_version.outputs.version }}
+        tag_name: pre
+        name: 🚀 Latest Build (Pre-release)
         body: |
-          ## 📦 下载说明
+          ## 📦 最新构建版本
+          
+          > ⚠️ 这是自动构建的预发布版本，每次推送到 main 分支时自动更新
+          > 
+          > 📅 构建时间：${{ github.event.head_commit.timestamp }}
+          > 📝 最新提交：${{ github.event.head_commit.message }}
+          > 👤 提交者：${{ github.event.head_commit.author.name }}
           
           ### Linux 版本
-          - **stun_frps_linux_x64.tar.gz** - 服务端完整包
-          - **stun_frpc_linux_x64.tar.gz** - 客户端完整包
+          - **stun_frps_linux_x64.tar.gz** - Frps服务端
+          - **stun_frpc_linux_x64.tar.gz** - Frpc客户端
           
           ### Windows 版本
-          - **stun_frps_windows_x64.zip** - 服务端完整包
-          - **stun_frpc_windows_x64.zip** - 客户端完整包
+          - **stun_frps_windows_x64.zip** - Frps服务端
+          - **stun_frpc_windows_x64.zip** - Frpc客户端
           
           ### 使用方法
           
@@ -278,44 +271,10 @@ jobs:
           
           详细文档：[README.md](https://github.com/yuexps/stun-frp)
         draft: false
-        prerelease: false
-    
-    - name: Upload Stun_Frps Linux to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frps_linux_x64/stun_frps_linux_x64.tar.gz
-        asset_name: stun_frps_linux_x64.tar.gz
-        asset_content_type: application/gzip
-    
-    - name: Upload Stun_Frpc Linux to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frpc_linux_x64/stun_frpc_linux_x64.tar.gz
-        asset_name: stun_frpc_linux_x64.tar.gz
-        asset_content_type: application/gzip
-    
-    - name: Upload Stun_Frps Windows to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frps_windows_x64/stun_frps_windows_x64.zip
-        asset_name: stun_frps_windows_x64.zip
-        asset_content_type: application/zip
-    
-    - name: Upload Stun_Frpc Windows to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/stun_frpc_windows_x64/stun_frpc_windows_x64.zip
-        asset_name: stun_frpc_windows_x64.zip
-        asset_content_type: application/zip
+        prerelease: true
+        make_latest: false
+        files: |
+          artifacts/stun_frps_linux_x64/stun_frps_linux_x64.tar.gz
+          artifacts/stun_frpc_linux_x64/stun_frpc_linux_x64.tar.gz
+          artifacts/stun_frps_windows_x64/stun_frps_windows_x64.zip
+          artifacts/stun_frpc_windows_x64/stun_frpc_windows_x64.zip
