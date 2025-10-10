@@ -208,6 +208,8 @@ def update_frpc_config(client_number, server_port, remote_port, public_port):
 
         # 获取当前代理配置
         old_remote_port = None
+        local_ip = "0.0.0.0"
+        local_port = None
         if 'proxies' in config and len(config['proxies']) > 0:
             # 为每个客户端的代理添加唯一名称后缀
             proxy = config['proxies'][0]
@@ -221,6 +223,10 @@ def update_frpc_config(client_number, server_port, remote_port, public_port):
                 logger.info(f"客户端{client_number}代理名称更新为: {proxy['name']}")
             
             old_remote_port = proxy.get('remotePort')
+            # 获取 localIP 和 localPort
+            local_ip = proxy.get('localIP', '0.0.0.0')
+            local_port = proxy.get('localPort')
+            
             # 更新代理远程下发端口（对应 client_local_port）
             if old_remote_port != remote_port:
                 proxy['remotePort'] = remote_port
@@ -232,16 +238,16 @@ def update_frpc_config(client_number, server_port, remote_port, public_port):
             changed = True
 
         if not changed:
-            return False, config_path  # 无变化
+            return False, config_path, local_ip, local_port  # 无变化
 
         with open(config_path, 'w') as f:
             toml.dump(config, f)
 
         logger.info(f"客户端{client_number}: serverAddr={DOMAIN}, serverPort={server_port}, remotePort={remote_port}, 公网端口={public_port}")
-        return True, config_path
+        return True, config_path, local_ip, local_port
     except Exception as e:
         logger.error(f"更新客户端{client_number}配置文件失败: {e}")
-        return False, None
+        return False, None, None, None
 
 def validate_config(config_path):
     """
@@ -451,9 +457,11 @@ def main():
     for client_num in CLIENT_NUMBERS:
         if client_num in configs:
             server_port, remote_port, public_port = configs[client_num]
-            changed, config_path = update_frpc_config(client_num, server_port, remote_port, public_port)
+            changed, config_path, local_ip, local_port = update_frpc_config(client_num, server_port, remote_port, public_port)
             if config_path:
                 logger.info(f"客户端{client_num}连接地址: {DOMAIN}:{public_port}")
+                if local_ip and local_port:
+                    logger.info(f"客户端{client_num}目标地址: {local_ip}:{local_port}")
                 if not start_frpc(client_num, config_path):
                     logger.warning(f"客户端{client_num}启动失败，将在下次检查时继续尝试")
         else:
@@ -486,7 +494,7 @@ def main():
             for client_num in CLIENT_NUMBERS:
                 if client_num in configs:
                     server_port, remote_port, public_port = configs[client_num]
-                    changed, config_path = update_frpc_config(client_num, server_port, remote_port, public_port)
+                    changed, config_path, local_ip, local_port = update_frpc_config(client_num, server_port, remote_port, public_port)
                     
                     # 如果进程已死亡或配置改变，需要重启
                     if client_num in dead_clients or (changed and config_path):
