@@ -5,7 +5,7 @@ import platform
 import subprocess
 import re
 import os
-import traceback
+import sys
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -306,8 +306,17 @@ def check_process_health(client_number):
 
 
 def get_frpc_paths():
+    """获取 frpc 可执行文件和配置文件路径，支持 PyInstaller 打包"""
     system = platform.system()
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 判断是否为 PyInstaller 打包后的可执行文件
+    if getattr(sys, 'frozen', False):
+        # 如果是打包后的可执行文件，使用可执行文件所在目录
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        # 如果是源码运行，使用脚本所在目录
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    
     if system == 'Windows':
         exe = os.path.join(base_dir, 'Windows', 'frpc.exe')
         conf = os.path.join(base_dir, 'Windows', 'frpc.toml')

@@ -6,7 +6,6 @@ import sys
 import time
 import re
 import requests
-import traceback
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -26,7 +25,14 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()  # 日志级别
 LOG_FILE = os.getenv('LOG_FILE', '')  # 日志文件路径（空表示不写文件）
 
 # 路径配置
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 判断是否为 PyInstaller 打包后的可执行文件
+if getattr(sys, 'frozen', False):
+    # 如果是打包后的可执行文件，使用可执行文件所在目录
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # 如果是源码运行，使用脚本所在目录
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 STUN_PORT_CONFIG = os.path.join(BASE_DIR, 'Stun_Port.toml')
 NATTER_PATH = os.path.join(BASE_DIR, 'Natter', 'natter.py')
 
@@ -159,8 +165,7 @@ def read_stun_port_config():
         logger.info(f"读取到 {len(port_config)} 个需要打洞的端口配置: {port_config}")
         return port_config
     except Exception as e:
-        logger.error(f"读取 Stun_Port.toml 失败: {e}")
-        traceback.print_exc()
+        logger.error(f"读取 Stun_Port.toml 失败: {e}", exc_info=True)
         return {}
     
 
@@ -282,8 +287,7 @@ def run_natter_for_port(port_name, local_port=0, max_retries=3):
                 safe_terminate_process(process, f"{port_name} natter", timeout_terminate=5, timeout_kill=2)
                 
         except Exception as e:
-            logger.error(f"运行 natter 失败 ({port_name}) 第 {retry + 1} 次: {e}")
-            traceback.print_exc()
+            logger.error(f"运行 natter 失败 ({port_name}) 第 {retry + 1} 次: {e}", exc_info=True)
             # 清理可能存在的进程
             try:
                 if 'process' in locals() and process:
@@ -550,8 +554,7 @@ def start_frps():
         logger.info("frps 已启动")
         return True
     except Exception as e:
-        logger.error(f"启动 frps 失败: {e}")
-        traceback.print_exc()
+        logger.error(f"启动 frps 失败: {e}", exc_info=True)
         frps_process = None
         return False
 
@@ -938,8 +941,7 @@ def main():
             logger.info("\n接收到退出信号，正在清理...")
             break
         except Exception as e:
-            logger.error(f"主循环异常: {e}")
-            traceback.print_exc()
+            logger.error(f"主循环异常: {e}", exc_info=True)
             # 发生异常时也清理一下进程
             cleanup_natter_processes()
             logger.info("等待下次检查...")
