@@ -5,6 +5,9 @@ import platform
 import subprocess
 import re
 import os
+import traceback
+import logging
+from logging.handlers import RotatingFileHandler
 
 try:
     from dotenv import load_dotenv
@@ -18,6 +21,8 @@ CLIENT_NUMBERS = [int(x.strip()) for x in os.getenv('STUN_CLIENT_NUMBER', '1').s
 DOMAIN = os.getenv('STUN_DOMAIN', '')  # 域名(必填)
 CHECK_INTERVAL = int(os.getenv('STUN_CHECK_INTERVAL', '120'))  # 检查间隔(秒)
 FRP_TOKEN = os.getenv('FRP_AUTH_TOKEN', 'stun_frp')  # FRP 认证 Token
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()  # 日志级别
+LOG_FILE = os.getenv('LOG_FILE', '')  # 日志文件路径（空表示不写文件）
 
 # frpc可执行文件和配置文件路径（根据操作系统自动选择）
 FRPC_EXE_PATH = ''
@@ -27,52 +32,136 @@ FRPC_CONFIG_PATH = ''
 frpc_processes = {}  # {client_number: process}
 frpc_connect_ports = {}  # {client_number: public_port}
 
-def parse_txt_record(domain):
-    """解析 DNS TXT 记录，返回所有客户端的配置"""
-    try:
-        resolver = dns.resolver.Resolver()
-        resolver.cache = None  # 禁用缓存
-        resolver.nameservers = ['1.1.1.1', '8.8.8.8']
-        
-        answers = resolver.resolve(domain, 'TXT')
-        configs = {}  # {client_number: (server_port, remote_port, public_port)}
-        server_port = None
-        
-        for rdata in answers:
-            for txt_string in rdata.strings:
-                txt = txt_string.decode()
-                
-                # 解析 server_port（所有客户端共用）
-                if server_port is None:
-                    server_match = re.search(r'server_port=(\d+)', txt)
-                    if server_match:
-                        server_port = int(server_match.group(1))
-                
-                # 解析每个客户端的配置
-                for client_num in CLIENT_NUMBERS:
-                    local_port_key = f'client_local_port{client_num}'
-                    public_port_key = f'client_public_port{client_num}'
+
+def setup_logger():
+    """配置日志系统"""
+    logger = logging.getLogger('Stun_Frpc')
+    logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    
+    # 避免重复添加 handler
+    if logger.handlers:
+        return logger
+    
+    # 日志格式
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # 控制台输出
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # 文件输出（如果配置了）
+    if LOG_FILE:
+        try:
+            # 确保日志目录存在
+            log_dir = os.path.dirname(LOG_FILE)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            # 使用 RotatingFileHandler，自动轮转日志
+            file_handler = RotatingFileHandler(
+                LOG_FILE,
+                maxBytes=10*1024*1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+            logger.info(f"日志文件已配置: {LOG_FILE}")
+        except Exception as e:
+            logger.warning(f"无法创建日志文件 {LOG_FILE}: {e}")
+    
+    return logger
+
+
+# 初始化日志
+logger = setup_logger()
+
+def parse_txt_record(domain, max_retries=3, retry_delay=2):
+    """
+    解析 DNS TXT 记录，返回所有客户端的配置
+    
+    Args:
+        domain: 域名
+        max_retries: 最大重试次数
+        retry_delay: 重试延迟（秒）
+    
+    Returns:
+        dict: {client_number: (server_port, remote_port, public_port)}
+    """
+    for retry in range(max_retries):
+        try:
+            if retry > 0:
+                logger.info(f"DNS 重试 {retry}/{max_retries-1}...")
+                time.sleep(retry_delay)
+            
+            resolver = dns.resolver.Resolver()
+            resolver.cache = None  # 禁用缓存
+            resolver.nameservers = ['1.1.1.1', '8.8.8.8']
+            resolver.timeout = 5  # 5秒超时
+            resolver.lifetime = 10  # 总生存时间10秒
+            
+            answers = resolver.resolve(domain, 'TXT')
+            configs = {}  # {client_number: (server_port, remote_port, public_port)}
+            server_port = None
+            
+            for rdata in answers:
+                for txt_string in rdata.strings:
+                    txt = txt_string.decode()
                     
-                    # 解析 client_local_port (frpc remotePort)
-                    local_match = re.search(rf'{local_port_key}=(\d+)', txt)
-                    # 解析 client_public_port (公网连接端口)
-                    public_match = re.search(rf'{public_port_key}=(\d+)', txt)
+                    # 解析 server_port（所有客户端共用）
+                    if server_port is None:
+                        server_match = re.search(r'server_port=(\d+)', txt)
+                        if server_match:
+                            server_port = int(server_match.group(1))
                     
-                    if local_match and public_match:
-                        remote_port = int(local_match.group(1))
-                        public_port = int(public_match.group(1))
-                        configs[client_num] = (server_port, remote_port, public_port)
-                        print(f"[DNS] 客户端{client_num}: server_port={server_port}, {local_port_key}={remote_port}, {public_port_key}={public_port}")
-        
-        # 检查是否所有请求的客户端都找到了配置
-        for client_num in CLIENT_NUMBERS:
-            if client_num not in configs:
-                print(f"[WARN] 未找到客户端 {client_num} 的配置，请检查 DNS TXT 记录")
-        
-        return configs
-    except Exception as e:
-        print(f"[ERROR] DNS 查询失败: {e}")
-        return {}
+                    # 解析每个客户端的配置
+                    for client_num in CLIENT_NUMBERS:
+                        local_port_key = f'client_local_port{client_num}'
+                        public_port_key = f'client_public_port{client_num}'
+                        
+                        # 解析 client_local_port (frpc remotePort)
+                        local_match = re.search(rf'{local_port_key}=(\d+)', txt)
+                        # 解析 client_public_port (公网连接端口)
+                        public_match = re.search(rf'{public_port_key}=(\d+)', txt)
+                        
+                        if local_match and public_match:
+                            remote_port = int(local_match.group(1))
+                            public_port = int(public_match.group(1))
+                            configs[client_num] = (server_port, remote_port, public_port)
+                            logger.debug(f"客户端{client_num}: server_port={server_port}, {local_port_key}={remote_port}, {public_port_key}={public_port}")
+            
+            # 检查是否所有请求的客户端都找到了配置
+            missing_clients = [num for num in CLIENT_NUMBERS if num not in configs]
+            if missing_clients:
+                logger.warning(f"未找到客户端 {', '.join(map(str, missing_clients))} 的配置")
+            
+            if configs:
+                logger.info(f"成功解析 {len(configs)}/{len(CLIENT_NUMBERS)} 个客户端配置")
+                return configs
+            else:
+                logger.warning(f"未解析到任何客户端配置，将重试...")
+                
+        except dns.resolver.NXDOMAIN:
+            logger.error(f"域名 {domain} 不存在")
+            return {}
+        except dns.resolver.NoAnswer:
+            logger.error(f"域名 {domain} 没有 TXT 记录")
+            return {}
+        except dns.resolver.Timeout:
+            logger.warning(f"DNS 查询超时 (尝试 {retry+1}/{max_retries})")
+        except Exception as e:
+            logger.warning(f"DNS 查询失败 (尝试 {retry+1}/{max_retries}): {e}")
+            if retry == max_retries - 1:
+                logger.error("DNS 查询异常详情:", exc_info=True)
+    
+    logger.error(f"DNS 查询失败，已重试 {max_retries} 次")
+    return {}
 
 def update_frpc_config(client_number, server_port, remote_port, public_port):
     """更新指定客户端的 frpc 配置文件"""
@@ -87,7 +176,7 @@ def update_frpc_config(client_number, server_port, remote_port, public_port):
             if os.path.exists(FRPC_CONFIG_PATH):
                 import shutil
                 shutil.copy(FRPC_CONFIG_PATH, config_path)
-                print(f"[INFO] 为客户端{client_number}创建配置文件: {config_path}")
+                logger.info(f"为客户端{client_number}创建配置文件: {config_path}")
         
         config = toml.load(config_path)
         
@@ -115,7 +204,7 @@ def update_frpc_config(client_number, server_port, remote_port, public_port):
                 config['auth']['method'] = 'token'
                 config['auth']['token'] = FRP_TOKEN
                 changed = True
-                print(f"[UPDATE] 客户端{client_number} auth.token 已更新")
+                logger.info(f"客户端{client_number} auth.token 已更新")
 
         # 获取当前代理配置
         old_remote_port = None
@@ -129,7 +218,7 @@ def update_frpc_config(client_number, server_port, remote_port, public_port):
                 base_name = re.sub(r'_client\d+$', '', original_name)
                 proxy['name'] = f'{base_name}_client{client_number}'
                 changed = True
-                print(f"[UPDATE] 客户端{client_number}代理名称更新为: {proxy['name']}")
+                logger.info(f"客户端{client_number}代理名称更新为: {proxy['name']}")
             
             old_remote_port = proxy.get('remotePort')
             # 更新代理远程下发端口（对应 client_local_port）
@@ -148,11 +237,73 @@ def update_frpc_config(client_number, server_port, remote_port, public_port):
         with open(config_path, 'w') as f:
             toml.dump(config, f)
 
-        print(f"[UPDATE] 客户端{client_number}: serverAddr={DOMAIN}, serverPort={server_port}, remotePort={remote_port}, 公网端口={public_port}")
+        logger.info(f"客户端{client_number}: serverAddr={DOMAIN}, serverPort={server_port}, remotePort={remote_port}, 公网端口={public_port}")
         return True, config_path
     except Exception as e:
-        print(f"更新客户端{client_number}配置文件失败: {e}")
+        logger.error(f"更新客户端{client_number}配置文件失败: {e}")
         return False, None
+
+def validate_config(config_path):
+    """
+    验证 frpc 配置文件是否有效
+    
+    Args:
+        config_path: 配置文件路径
+    
+    Returns:
+        bool: 配置是否有效
+    """
+    try:
+        config = toml.load(config_path)
+        
+        # 检查必需的字段
+        required_fields = ['serverAddr', 'serverPort']
+        for field in required_fields:
+            if field not in config:
+                logger.error(f"配置文件缺少必需字段: {field}")
+                return False
+        
+        # 检查代理配置
+        if 'proxies' not in config or not config['proxies']:
+            logger.error("配置文件缺少代理配置")
+            return False
+        
+        # 检查第一个代理的配置
+        proxy = config['proxies'][0]
+        proxy_required = ['name', 'type', 'localPort', 'remotePort']
+        for field in proxy_required:
+            if field not in proxy:
+                logger.error(f"代理配置缺少必需字段: {field}")
+                return False
+        
+        return True
+    except Exception as e:
+        logger.error(f"配置文件验证失败: {e}")
+        return False
+
+
+def check_process_health(client_number):
+    """
+    检查 frpc 进程是否健康运行
+    
+    Args:
+        client_number: 客户端编号
+    
+    Returns:
+        bool: 进程是否健康
+    """
+    if client_number not in frpc_processes:
+        return False
+    
+    process = frpc_processes[client_number]
+    
+    # 检查进程是否还在运行
+    if process.poll() is not None:
+        logger.warning(f"客户端{client_number} frpc 进程已退出 (返回码: {process.returncode})")
+        return False
+    
+    return True
+
 
 def get_frpc_paths():
     system = platform.system()
@@ -167,15 +318,80 @@ def get_frpc_paths():
 
 FRPC_EXE_PATH, FRPC_CONFIG_PATH = get_frpc_paths()
 
+
+def safe_terminate_process(process, process_name="进程", timeout_terminate=5, timeout_kill=2):
+    """
+    安全地终止进程，先尝试 terminate，超时后使用 kill
+    
+    Args:
+        process: subprocess.Popen 对象
+        process_name: 进程名称（用于日志）
+        timeout_terminate: terminate 等待超时时间（秒）
+        timeout_kill: kill 等待超时时间（秒）
+    
+    Returns:
+        bool: 是否成功终止
+    """
+    if not process or process.poll() is not None:
+        return True  # 进程已经退出
+    
+    try:
+        logger.info(f"正在终止 {process_name} (PID: {process.pid})...")
+        process.terminate()
+        try:
+            process.wait(timeout=timeout_terminate)
+            logger.info(f"{process_name} 已正常终止")
+            return True
+        except subprocess.TimeoutExpired:
+            logger.warning(f"{process_name} 未响应 terminate，使用 kill 强制结束...")
+            process.kill()
+            try:
+                process.wait(timeout=timeout_kill)
+                logger.warning(f"{process_name} 已强制结束")
+                return True
+            except:
+                logger.error(f"{process_name} 可能未完全结束")
+                return False
+    except Exception as e:
+        logger.error(f"终止 {process_name} 失败: {e}")
+        return False
+
+
 def start_frpc(client_number, config_path):
     """启动指定客户端的 frpc 进程"""
     global frpc_processes
     try:
-        process = subprocess.Popen([FRPC_EXE_PATH, '-c', config_path], shell=(platform.system() == 'Windows'))
+        # 验证配置文件
+        if not validate_config(config_path):
+            logger.error(f"客户端{client_number}配置文件验证失败")
+            return False
+        
+        # Windows 上不使用 shell=True，避免子进程无法终止
+        if platform.system() == 'Windows':
+            # Windows: 创建新的进程组，便于终止
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            process = subprocess.Popen(
+                [FRPC_EXE_PATH, '-c', config_path],
+                creationflags=CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            # Linux/Unix: 直接启动
+            process = subprocess.Popen([FRPC_EXE_PATH, '-c', config_path])
+        
         frpc_processes[client_number] = process
-        print(f"[START] 客户端{client_number} frpc 已启动")
+        logger.info(f"客户端{client_number} frpc 已启动 (PID: {process.pid})")
+        
+        # 短暂等待，检查进程是否立即退出
+        time.sleep(0.5)
+        if process.poll() is not None:
+            logger.error(f"客户端{client_number} frpc 启动后立即退出 (返回码: {process.returncode})")
+            del frpc_processes[client_number]
+            return False
+        
+        return True
     except Exception as e:
-        print(f"启动客户端{client_number} frpc 失败: {e}")
+        logger.error(f"启动客户端{client_number} frpc 失败: {e}", exc_info=True)
+        return False
 
 def restart_frpc(client_number, config_path):
     """重启指定客户端的 frpc 进程"""
@@ -185,40 +401,41 @@ def restart_frpc(client_number, config_path):
         if client_number in frpc_processes:
             process = frpc_processes[client_number]
             if process.poll() is None:
-                print(f"[RESTART] 正在终止客户端{client_number} frpc 进程...")
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                    print(f"[RESTART] 客户端{client_number} frpc 进程已正常终止")
-                except subprocess.TimeoutExpired:
-                    print(f"[RESTART] 客户端{client_number}进程未响应终止信号，强制结束...")
-                    process.kill()
-                    process.wait(timeout=5)
-                    print(f"[RESTART] 客户端{client_number} frpc 进程已强制结束")
+                logger.info(f"正在终止客户端{client_number} frpc 进程...")
+                if not safe_terminate_process(process, f"客户端{client_number} frpc", timeout_terminate=5, timeout_kill=2):
+                    logger.warning(f"客户端{client_number} frpc 可能未完全关闭，但仍继续重启流程")
             else:
-                print(f"[RESTART] 客户端{client_number} frpc 进程已不在运行")
+                logger.info(f"客户端{client_number} frpc 进程已不在运行")
             
             # 清理进程记录
             del frpc_processes[client_number]
             
             # 等待服务器端完全释放代理连接
-            print(f"[RESTART] 等待服务器释放代理连接...")
+            logger.debug("等待服务器释放代理连接...")
             time.sleep(3)
         
         # 启动新进程
-        start_frpc(client_number, config_path)
-        print(f"[RESTART] 客户端{client_number} frpc 已重启")
+        if start_frpc(client_number, config_path):
+            logger.info(f"客户端{client_number} frpc 已重启")
+            return True
+        else:
+            logger.error(f"客户端{client_number} frpc 重启失败")
+            return False
     except Exception as e:
-        print(f"重启客户端{client_number} frpc 失败: {e}")
+        logger.error(f"重启客户端{client_number} frpc 失败: {e}", exc_info=True)
+        # 确保清理进程记录
+        if client_number in frpc_processes:
+            del frpc_processes[client_number]
+        return False
 
 def main():
-    print("[START] 启动 frpc 端口自动更新守护进程")
-    print(f"[INFO] 客户端编号: {', '.join(map(str, CLIENT_NUMBERS))}")
-    print(f"[INFO] 域名: {DOMAIN}")
-    print(f"[INFO] 检查间隔: {CHECK_INTERVAL} 秒")
+    logger.info("启动 frpc 端口自动更新守护进程")
+    logger.info(f"客户端编号: {', '.join(map(str, CLIENT_NUMBERS))}")
+    logger.info(f"域名: {DOMAIN}")
+    logger.info(f"检查间隔: {CHECK_INTERVAL} 秒")
     
     # 首次启动前先检查并更新配置
-    print("\n[INIT] 首次检查 DNS TXT 记录...")
+    logger.info("\n首次检查 DNS TXT 记录...")
     configs = parse_txt_record(DOMAIN)
     
     # 为每个客户端初始化配置和启动进程
@@ -227,47 +444,71 @@ def main():
             server_port, remote_port, public_port = configs[client_num]
             changed, config_path = update_frpc_config(client_num, server_port, remote_port, public_port)
             if config_path:
-                print(f"[INFO] 客户端{client_num}连接地址: {DOMAIN}:{public_port}")
-                start_frpc(client_num, config_path)
+                logger.info(f"客户端{client_num}连接地址: {DOMAIN}:{public_port}")
+                if not start_frpc(client_num, config_path):
+                    logger.warning(f"客户端{client_num}启动失败，将在下次检查时继续尝试")
         else:
-            print(f"[WARN] 跳过客户端{client_num}的启动，未找到配置")
+            logger.warning(f"跳过客户端{client_num}的启动，未找到配置")
     
     # 进入监控循环
     while True:
         try:
             time.sleep(CHECK_INTERVAL)
-            print(f"\n[CHECK] 定期检查端口配置...")
+            logger.info("\n定期检查端口配置...")
             
+            # 先检查进程健康状态
+            dead_clients = []
+            for client_num in CLIENT_NUMBERS:
+                if client_num in frpc_processes and not check_process_health(client_num):
+                    dead_clients.append(client_num)
+                    del frpc_processes[client_num]
+            
+            if dead_clients:
+                logger.warning(f"检测到 {len(dead_clients)} 个客户端进程异常退出: {', '.join(map(str, dead_clients))}")
+            
+            # 查询最新配置
             configs = parse_txt_record(DOMAIN)
+            
+            if not configs:
+                logger.warning("DNS 查询失败，跳过本次检查")
+                continue
             
             # 检查每个客户端的配置
             for client_num in CLIENT_NUMBERS:
                 if client_num in configs:
                     server_port, remote_port, public_port = configs[client_num]
                     changed, config_path = update_frpc_config(client_num, server_port, remote_port, public_port)
-                    if changed and config_path:
-                        restart_frpc(client_num, config_path)
+                    
+                    # 如果进程已死亡或配置改变，需要重启
+                    if client_num in dead_clients or (changed and config_path):
+                        if client_num in dead_clients:
+                            logger.info(f"客户端{client_num}进程异常，尝试重启...")
+                            if not start_frpc(client_num, config_path):
+                                logger.warning(f"客户端{client_num}重启失败，将在下次检查时继续尝试")
+                        else:
+                            if not restart_frpc(client_num, config_path):
+                                logger.warning(f"客户端{client_num}重启失败，将在下次检查时继续尝试")
                     elif not changed:
-                        print(f"[OK] 客户端{client_num}配置未改变，无需重启")
+                        logger.info(f"客户端{client_num}配置未改变，无需重启")
                 else:
-                    print(f"[WARN] 客户端{client_num}未能从 TXT 记录中解析端口，保持当前配置")
+                    logger.warning(f"客户端{client_num}未能从 TXT 记录中解析端口，保持当前配置")
                     
         except KeyboardInterrupt:
-            print("\n[EXIT] 接收到退出信号...")
+            logger.info("\n接收到退出信号...")
             break
         except Exception as e:
-            print(f"[ERROR] 主循环异常: {e}")
+            logger.error(f"主循环异常: {e}", exc_info=True)
+            logger.info("等待下次检查...")
             time.sleep(60)
     
     # 清理资源
-    for client_num, process in frpc_processes.items():
+    logger.info("\n清理资源...")
+    for client_num, process in list(frpc_processes.items()):
         if process and process.poll() is None:
-            try:
-                process.terminate()
-                process.wait(timeout=5)
-                print(f"[EXIT] 客户端{client_num} frpc 已停止")
-            except:
-                pass
+            logger.info(f"停止客户端{client_num} frpc...")
+            safe_terminate_process(process, f"客户端{client_num} frpc", timeout_terminate=5, timeout_kill=2)
+    
+    logger.info("服务已停止。")
 
 
 if __name__ == '__main__':

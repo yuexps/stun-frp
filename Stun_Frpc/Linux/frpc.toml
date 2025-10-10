@@ -2,7 +2,7 @@ serverAddr = "frp.test.com"
 serverPort = 0
 
 [[proxies]]
-name = "Minecraft_java"
+name = "stun_frp"
 type = "tcp"
 localPort = 25565
 remotePort = 0

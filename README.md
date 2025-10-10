@@ -33,6 +33,19 @@
 ## 快速开始
 
 
+### 方式一：使用预编译可执行文件（推荐）
+
+**下载可执行文件：**
+
+1. 访问 [Releases 页面](https://github.com/yuexps/stun-frp/releases)
+
+2. 下载对应平台打包的可执行文件（配置同下）
+
+> **提示**：可执行文件由 GitHub Actions 自动构建，无需安装 Python 环境即可运行。
+
+
+### 方式二：从源码运行
+
 ### 拉取项目
 
 ```bash
@@ -122,12 +135,18 @@ FRP_AUTH_TOKEN=
 ```
 
 
-3. **运行客户端**
+2. **运行客户端**
 
 ```bash
 cd Stun_Frpc
 python3 Stun_Frpc.py
 ```
+
+3. **配置Frpc本地端口**
+
+程序会自动生成 Linux/frpc{客户端编号}.toml，可编辑此文件配置对应代理
+
+只建议按需修改 `localPort` , 其他配置是根据Stun_Frps下发自动处理
 
 
 ## 注意事项

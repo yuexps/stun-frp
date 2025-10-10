@@ -1,0 +1,442 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: windows-latest
+            platform: windows
+            arch: x64
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+    
+    - name: Build and Package Stun_Frps (Linux)
+      if: matrix.platform == 'linux'
+      run: |
+        cd Stun_Frps
+        pyinstaller --onefile --name stun_frps_linux_x64 Stun_Frps.py
+        
+        # 创建发布目录结构
+        mkdir -p ../release/stun_frps_linux_x64/Linux
+        mkdir -p ../release/stun_frps_linux_x64/Natter
+        
+        # 复制可执行文件
+        cp dist/stun_frps_linux_x64 ../release/stun_frps_linux_x64/
+        
+        # 复制必要的文件和目录
+        cp .env.example ../release/stun_frps_linux_x64/
+        cp Stun_Port.toml ../release/stun_frps_linux_x64/
+        cp Linux/frps ../release/stun_frps_linux_x64/Linux/
+        cp Linux/frps.toml ../release/stun_frps_linux_x64/Linux/
+        cp Natter/natter.py ../release/stun_frps_linux_x64/Natter/
+        
+        # 创建 README
+        cat > ../release/stun_frps_linux_x64/README.txt << 'EOF'
+        Stun-FRP Server (Linux x64)
+        ============================
+        
+        快速开始:
+        1. 复制 .env.example 为 .env 并编辑配置
+        2. 编辑 Stun_Port.toml 配置端口
+        3. 运行: chmod +x stun_frps_linux_x64 && ./stun_frps_linux_x64
+        
+        详细文档: https://github.com/yuexps/stun-frp
+        EOF
+        
+        # 打包
+        cd ../release
+        tar -czf stun_frps_linux_x64.tar.gz stun_frps_linux_x64
+        ls -lh
+    
+    - name: Build and Package Stun_Frpc (Linux)
+      if: matrix.platform == 'linux'
+      run: |
+        cd Stun_Frpc
+        pyinstaller --onefile --name stun_frpc_linux_x64 Stun_Frpc.py
+        
+        # 创建发布目录结构
+        mkdir -p ../release/stun_frpc_linux_x64/Linux
+        
+        # 复制可执行文件
+        cp dist/stun_frpc_linux_x64 ../release/stun_frpc_linux_x64/
+        
+        # 复制必要的文件和目录
+        cp .env.example ../release/stun_frpc_linux_x64/
+        cp Linux/frpc ../release/stun_frpc_linux_x64/Linux/
+        cp Linux/frpc.toml ../release/stun_frpc_linux_x64/Linux/
+        
+        # 创建 README
+        cat > ../release/stun_frpc_linux_x64/README.txt << 'EOF'
+        Stun-FRP Client (Linux x64)
+        ============================
+        
+        快速开始:
+        1. 复制 .env.example 为 .env 并编辑配置
+        2. 运行: chmod +x stun_frpc_linux_x64 && ./stun_frpc_linux_x64
+        3. 程序会自动生成 Linux/frpc{客户端编号}.toml，可编辑此文件配置对应代理(只建议按需修改 `localPort` )
+        
+        详细文档: https://github.com/yuexps/stun-frp
+        EOF
+        
+        # 打包
+        cd ../release
+        tar -czf stun_frpc_linux_x64.tar.gz stun_frpc_linux_x64
+        ls -lh
+    
+    - name: Build and Package Stun_Frps (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        cd Stun_Frps
+        pyinstaller --onefile --name stun_frps_windows_x64 Stun_Frps.py
+        
+        # 创建发布目录结构
+        New-Item -ItemType Directory -Force -Path ..\release\stun_frps_windows_x64\Windows
+        New-Item -ItemType Directory -Force -Path ..\release\stun_frps_windows_x64\Natter
+        
+        # 复制可执行文件
+        Copy-Item dist\stun_frps_windows_x64.exe ..\release\stun_frps_windows_x64\
+        
+        # 复制必要的文件和目录
+        Copy-Item .env.example ..\release\stun_frps_windows_x64\
+        Copy-Item Stun_Port.toml ..\release\stun_frps_windows_x64\
+        Copy-Item Windows\frps.exe ..\release\stun_frps_windows_x64\Windows\
+        Copy-Item Windows\frps.toml ..\release\stun_frps_windows_x64\Windows\
+        Copy-Item Natter\natter.py ..\release\stun_frps_windows_x64\Natter\
+        
+        # 创建 README
+        @"
+        Stun-FRP Server (Windows x64)
+        ==============================
+        
+        快速开始:
+        1. 复制 .env.example 为 .env 并编辑配置
+        2. 编辑 Stun_Port.toml 配置端口
+        3. 双击运行: stun_frps_windows_x64.exe
+        
+        详细文档: https://github.com/yuexps/stun-frp
+        "@ | Out-File -FilePath ..\release\stun_frps_windows_x64\README.txt -Encoding UTF8
+        
+        # 打包
+        cd ..\release
+        Compress-Archive -Path stun_frps_windows_x64 -DestinationPath stun_frps_windows_x64.zip
+        dir
+    
+    - name: Build and Package Stun_Frpc (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        cd Stun_Frpc
+        pyinstaller --onefile --name stun_frpc_windows_x64 Stun_Frpc.py
+        
+        # 创建发布目录结构
+        New-Item -ItemType Directory -Force -Path ..\release\stun_frpc_windows_x64\Windows
+        
+        # 复制可执行文件
+        Copy-Item dist\stun_frpc_windows_x64.exe ..\release\stun_frpc_windows_x64\
+        
+        # 复制必要的文件和目录
+        Copy-Item .env.example ..\release\stun_frpc_windows_x64\
+        Copy-Item Windows\frpc.exe ..\release\stun_frpc_windows_x64\Windows\
+        Copy-Item Windows\frpc.toml ..\release\stun_frpc_windows_x64\Windows\
+        
+        # 创建 README
+        @"
+        Stun-FRP Client (Windows x64)
+        ==============================
+        
+        快速开始:
+        1. 复制 .env.example 为 .env 并编辑配置
+        2. 双击运行: stun_frpc_windows_x64.exe
+        3. 程序会自动生成 Windows\frpc{客户端编号}.toml，可编辑此文件配置对应代理(只建议按需修改 `localPort` )
+        
+        详细文档: https://github.com/yuexps/stun-frp
+        "@ | Out-File -FilePath ..\release\stun_frpc_windows_x64\README.txt -Encoding UTF8
+        
+        # 打包
+        cd ..\release
+        Compress-Archive -Path stun_frpc_windows_x64 -DestinationPath stun_frpc_windows_x64.zip
+        dir
+    
+    - name: Upload Stun_Frps Package (Linux)
+      if: matrix.platform == 'linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frps_linux_x64
+        path: release/stun_frps_linux_x64.tar.gz
+        retention-days: 90
+    
+    - name: Upload Stun_Frpc Package (Linux)
+      if: matrix.platform == 'linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frpc_linux_x64
+        path: release/stun_frpc_linux_x64.tar.gz
+        retention-days: 90
+    
+    - name: Upload Stun_Frps Package (Windows)
+      if: matrix.platform == 'windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frps_windows_x64
+        path: release/stun_frps_windows_x64.zip
+        retention-days: 90
+    
+    - name: Upload Stun_Frpc Package (Windows)
+      if: matrix.platform == 'windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frpc_windows_x64
+        path: release/stun_frpc_windows_x64.zip
+        retention-days: 90
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Display structure of downloaded files
+      run: ls -R artifacts
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
+        body: |
+          ## 📦 下载说明
+          
+          ### Linux 版本
+          - **stun_frps_linux_x64.tar.gz** - 服务端完整包
+          - **stun_frpc_linux_x64.tar.gz** - 客户端完整包
+          
+          ### Windows 版本
+          - **stun_frps_windows_x64.zip** - 服务端完整包
+          - **stun_frpc_windows_x64.zip** - 客户端完整包
+          
+          ### 使用方法
+          
+          1. 下载对应平台的压缩包
+          2. 解压后进入目录
+          3. 复制 `.env.example` 为 `.env` 并编辑配置
+          4. 运行可执行文件
+          
+          详细文档：[README.md](https://github.com/yuexps/stun-frp)
+        draft: false
+        prerelease: false
+    
+    - name: Upload Stun_Frps Linux to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frps_linux_x64/stun_frps_linux_x64.tar.gz
+        asset_name: stun_frps_linux_x64.tar.gz
+        asset_content_type: application/gzip
+    
+    - name: Upload Stun_Frpc Linux to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frpc_linux_x64/stun_frpc_linux_x64.tar.gz
+        asset_name: stun_frpc_linux_x64.tar.gz
+        asset_content_type: application/gzip
+    
+    - name: Upload Stun_Frps Windows to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frps_windows_x64/stun_frps_windows_x64.zip
+        asset_name: stun_frps_windows_x64.zip
+        asset_content_type: application/zip
+    
+    - name: Upload Stun_Frpc Windows to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frpc_windows_x64/stun_frpc_windows_x64.zip
+        asset_name: stun_frpc_windows_x64.zip
+        asset_content_type: application/zip
+
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+    
+    - name: Build Stun_Frps (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        cd Stun_Frps
+        pyinstaller --onefile --name stun_frps_linux_x64 Stun_Frps.py
+        ls -lh dist/
+    
+    - name: Build Stun_Frpc (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        cd Stun_Frpc
+        pyinstaller --onefile --name stun_frpc_linux_x64 Stun_Frpc.py
+        ls -lh dist/
+    
+    - name: Build Stun_Frps (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd Stun_Frps
+        pyinstaller --onefile --name stun_frps_windows_x64 Stun_Frps.py
+        dir dist\
+    
+    - name: Build Stun_Frpc (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd Stun_Frpc
+        pyinstaller --onefile --name stun_frpc_windows_x64 Stun_Frpc.py
+        dir dist\
+    
+    - name: Upload Stun_Frps artifact (Linux)
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frps_linux_x64
+        path: Stun_Frps/dist/stun_frps_linux_x64
+        retention-days: 90
+    
+    - name: Upload Stun_Frpc artifact (Linux)
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frpc_linux_x64
+        path: Stun_Frpc/dist/stun_frpc_linux_x64
+        retention-days: 90
+    
+    - name: Upload Stun_Frps artifact (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frps_windows_x64
+        path: Stun_Frps/dist/stun_frps_windows_x64.exe
+        retention-days: 90
+    
+    - name: Upload Stun_Frpc artifact (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: stun_frpc_windows_x64
+        path: Stun_Frpc/dist/stun_frpc_windows_x64.exe
+        retention-days: 90
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Display structure of downloaded files
+      run: ls -R artifacts
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+    
+    - name: Upload Stun_Frps Linux to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frps_linux_x64/stun_frps_linux_x64
+        asset_name: stun_frps_linux_x64
+        asset_content_type: application/octet-stream
+    
+    - name: Upload Stun_Frpc Linux to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frpc_linux_x64/stun_frpc_linux_x64
+        asset_name: stun_frpc_linux_x64
+        asset_content_type: application/octet-stream
+    
+    - name: Upload Stun_Frps Windows to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frps_windows_x64/stun_frps_windows_x64.exe
+        asset_name: stun_frps_windows_x64.exe
+        asset_content_type: application/octet-stream
+    
+    - name: Upload Stun_Frpc Windows to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/stun_frpc_windows_x64/stun_frpc_windows_x64.exe
+        asset_name: stun_frpc_windows_x64.exe
+        asset_content_type: application/octet-stream

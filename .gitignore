@@ -1,4 +1,34 @@
+# 环境配置
 Stun_Frpc/.env
 Stun_Frps/.env
-Stun_Frpc/Windows/frpc_1.toml
-Stun_Frpc/Windows/frpc_2.toml
+.env
+
+# 动态生成的配置文件
+Stun_Frpc/Windows/frpc_*.toml
+Stun_Frpc/Linux/frpc_*.toml
+
+# Python 字节码
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# PyInstaller
+*.spec
+build/
+dist/
+
+# 日志文件
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
