@@ -62,6 +62,11 @@ jobs:
         # 复制 Natter 可执行文件
         cp Natter/dist/natter ../release/stun_frps_linux_x64/Natter/
         
+        # 设置执行权限
+        chmod +x ../release/stun_frps_linux_x64/stun_frps_linux_x64
+        chmod +x ../release/stun_frps_linux_x64/Linux/frps
+        chmod +x ../release/stun_frps_linux_x64/Natter/natter
+        
         # 创建 README
         cat > ../release/stun_frps_linux_x64/README.txt << 'EOF'
         Stun-FRP Server (Linux x64)
@@ -96,6 +101,10 @@ jobs:
         cp .env.example ../release/stun_frpc_linux_x64/
         cp Linux/frpc ../release/stun_frpc_linux_x64/Linux/
         cp Linux/frpc.toml ../release/stun_frpc_linux_x64/Linux/
+        
+        # 设置执行权限
+        chmod +x ../release/stun_frpc_linux_x64/stun_frpc_linux_x64
+        chmod +x ../release/stun_frpc_linux_x64/Linux/frpc
         
         # 创建 README
         cat > ../release/stun_frpc_linux_x64/README.txt << 'EOF'

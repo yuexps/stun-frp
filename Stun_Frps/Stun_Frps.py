@@ -22,7 +22,7 @@ CLOUDFLARE_API_TOKEN = os.getenv('CLOUDFLARE_API_TOKEN', '')  # Cloudflare 区�
 CHECK_INTERVAL = int(os.getenv('STUN_CHECK_INTERVAL', '300'))  # 定期检查间隔(秒)
 FRP_TOKEN = os.getenv('FRP_AUTH_TOKEN', 'stun_frp')  # FRP 认证 Token
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()  # 日志级别
-LOG_FILE = os.getenv('LOG_FILE', '')  # 日志文件路径（空表示不写文件）
+LOG_FILE = os.getenv('LOG_FILE', 'stun_frps.log')  # 日志文件路径（默认保存在运行目录）
 
 # 路径配置
 # 判断是否为 PyInstaller 打包后的可执行文件
@@ -85,19 +85,19 @@ def setup_logger():
             if log_dir and not os.path.exists(log_dir):
                 os.makedirs(log_dir)
             
-            # 使用 RotatingFileHandler，自动轮转日志
+            # 使用 RotatingFileHandler，只保留最新的日志
             file_handler = RotatingFileHandler(
                 LOG_FILE,
                 maxBytes=10*1024*1024,  # 10MB
-                backupCount=5,
+                backupCount=0,  # 不保留备份，只保留最新的
                 encoding='utf-8'
             )
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
-            logger.info(f"日志文件已配置: {LOG_FILE}")
+            logger.info(f"📝 日志文件已配置: {LOG_FILE}")
         except Exception as e:
-            logger.warning(f"无法创建日志文件 {LOG_FILE}: {e}")
+            logger.warning(f"⚠️  无法创建日志文件 {LOG_FILE}: {e}")
     
     return logger
 
@@ -172,7 +172,7 @@ def read_stun_port_config():
             logger.error("配置文件必须包含 server_port")
             return {}
         
-        logger.info(f"读取到 {len(port_config)} 个需要打洞的端口配置: {port_config}")
+        logger.info(f"📋 读取到 {len(port_config)} 个端口配置: {', '.join([f'{k}={v}' if v > 0 else f'{k}(自动)' for k, v in port_config.items()])}")
         return port_config
     except Exception as e:
         logger.error(f"读取 Stun_Port.toml 失败: {e}", exc_info=True)
@@ -231,7 +231,7 @@ def run_natter_for_port(port_name, local_port=0, max_retries=3):
             time.sleep(2)  # 重试前等待2秒
         
         try:
-            logger.info(f"正在为 {port_name} (本地端口: {local_port if local_port > 0 else '自动分配'}) 启动 natter 打洞...")
+            logger.info(f"🔌 正在为 {port_name} (本地端口: {local_port if local_port > 0 else '自动分配'}) 启动 natter 打洞...")
             
             # 构造natter命令
             # -q 参数: 当映射地址改变时自动退出,便于检测端口变化
@@ -288,9 +288,9 @@ def run_natter_for_port(port_name, local_port=0, max_retries=3):
                             public_ip = match.group(3)
                             public_port = int(match.group(4))
                             
-                            logger.info(f"{port_name} 打洞成功:")
-                            logger.info(f"  - 内网地址: {local_ip}:{actual_local_port}")
-                            logger.info(f"  - 公网地址: {public_ip}:{public_port}")
+                            logger.info(f"✅ {port_name} 打洞成功")
+                            logger.info(f"   ├─ 内网地址: {local_ip}:{actual_local_port}")
+                            logger.info(f"   └─ 公网地址: {public_ip}:{public_port}")
                             
                             return public_ip, public_port, actual_local_port, process
                 
@@ -341,7 +341,7 @@ def update_cloudflare_txt_record(port_mapping):
                 txt_parts.append(f"client_local_{port_suffix}={ports['local']}")
                 txt_parts.append(f"client_public_{port_suffix}={ports['public']}")
         txt_content = '"' + ','.join(txt_parts) + '"'
-        logger.info(f"准备更新 TXT 记录: {txt_content}")
+        logger.info(f"📝 准备更新 TXT 记录: {txt_content}")
         
         headers = {
             'Authorization': f'Bearer {CLOUDFLARE_API_TOKEN}',
@@ -403,7 +403,7 @@ def update_cloudflare_txt_record(port_mapping):
         result = response.json()
         
         if result.get('success'):
-            logger.info("Cloudflare TXT 记录已更新")
+            logger.info("✅ Cloudflare TXT 记录已更新")
             return True
         else:
             logger.error(f"Cloudflare API 返回错误: {result.get('errors')}")
@@ -426,7 +426,7 @@ def update_cloudflare_a_record(public_ip):
             logger.error("Cloudflare API Token 未配置")
             return False
         
-        logger.info(f"准备更新 A 记录: {DOMAIN} -> {public_ip}")
+        logger.info(f"📝 准备更新 A 记录: {DOMAIN} -> {public_ip}")
         
         headers = {
             'Authorization': f'Bearer {CLOUDFLARE_API_TOKEN}',
@@ -490,7 +490,7 @@ def update_cloudflare_a_record(public_ip):
         result = response.json()
         
         if result.get('success'):
-            logger.info(f"Cloudflare A 记录已更新: {DOMAIN} -> {public_ip}")
+            logger.info(f"✅ Cloudflare A 记录已更新: {DOMAIN} -> {public_ip}")
             return True
         else:
             logger.error(f"Cloudflare API 返回错误: {result.get('errors')}")
@@ -519,7 +519,7 @@ def update_frps_config(local_port):
         if old_bind_port != local_port:
             config['bindPort'] = local_port
             changed = True
-            logger.info(f"frps.toml bindPort: {old_bind_port} -> {local_port}")
+            logger.info(f"⚙️  frps.toml bindPort: {old_bind_port} -> {local_port}")
         
         # 检查并更新 auth.token (如果环境变量中配置了)
         if FRP_TOKEN:
@@ -531,7 +531,7 @@ def update_frps_config(local_port):
                 config['auth']['method'] = 'token'
                 config['auth']['token'] = FRP_TOKEN
                 changed = True
-                logger.info("frps.toml auth.token 已更新")
+                logger.info("⚙️  frps.toml auth.token 已更新")
         
         if not changed:
             return True  # 无变化
@@ -566,7 +566,7 @@ def start_frps():
             frps_process = subprocess.Popen(
                 [FRPS_EXE_PATH, '-c', FRPS_CONFIG_PATH]
             )
-        logger.info("frps 已启动")
+        logger.info("✅ frps 已启动")
         return True
     except Exception as e:
         logger.error(f"启动 frps 失败: {e}", exc_info=True)
@@ -579,7 +579,7 @@ def restart_frps():
     global frps_process
     try:
         if frps_process and frps_process.poll() is None:
-            logger.info("正在关闭 frps...")
+            logger.info("🛑 正在关闭 frps...")
             if not safe_terminate_process(frps_process, "frps", timeout_terminate=10, timeout_kill=5):
                 logger.warning("frps 可能未完全关闭，但仍继续重启流程")
             
@@ -592,10 +592,10 @@ def restart_frps():
         
         # 启动新的 frps 进程
         if start_frps():
-            logger.info("frps 已重启")
+            logger.info("✅ frps 已重启")
             return True
         else:
-            logger.error("frps 重启失败")
+            logger.error("❌ frps 重启失败")
             return False
     except Exception as e:
         logger.error(f"重启 frps 失败: {e}")
@@ -607,9 +607,10 @@ def perform_stun_and_update():
     """执行STUN打洞并更新配置"""
     global natter_processes
     
-    logger.info("\n" + "="*60)
-    logger.info("开始执行 STUN 打洞流程")
-    logger.info("="*60)
+    logger.info("")
+    logger.info("="*70)
+    logger.info("🚀 开始执行 STUN 打洞流程")
+    logger.info("="*70)
     
     # 1. 读取端口配置
     port_config = read_stun_port_config()
@@ -649,9 +650,9 @@ def perform_stun_and_update():
         return False
     
     if failed_ports:
-        logger.warning(f"以下端口打洞失败: {', '.join(failed_ports)}")
+        logger.warning(f"⚠️  以下端口打洞失败: {', '.join(failed_ports)}")
     
-    logger.info(f"\n端口映射完成: {port_mapping}")
+    logger.info(f"✅ 端口映射完成 ({len(port_mapping)}/{len(port_config)} 成功)")
     
     # 3. 更新 frps.toml 配置
     server_local_port = natter_processes['server_port']['local_port']
@@ -664,13 +665,13 @@ def perform_stun_and_update():
         if not start_frps():
             logger.error("frps 启动失败")
             return False
-        logger.info(f"frps 已启动，监听端口: {server_local_port}")
+        logger.info(f"✅ frps 已启动，监听端口: {server_local_port}")
     else:
         # frps 正在运行,需要重启以应用新配置
         if not restart_frps():
             logger.error("frps 重启失败")
             return False
-        logger.info(f"frps 已重启，监听端口: {server_local_port}")
+        logger.info(f"✅ frps 已重启，监听端口: {server_local_port}")
     
     # 5. 更新 Cloudflare DNS 记录
     # 获取 server_port 的公网 IP
@@ -682,9 +683,11 @@ def perform_stun_and_update():
     # 更新 TXT 记录 (端口映射信息)
     update_cloudflare_txt_record(port_mapping)
     
-    logger.info("\n" + "="*60)
-    logger.info("STUN 打洞流程完成")
-    logger.info("="*60 + "\n")
+    logger.info("")
+    logger.info("="*70)
+    logger.info("🎉 STUN 打洞流程完成")
+    logger.info("="*70)
+    logger.info("")
     
     return True
 
@@ -756,11 +759,11 @@ def cleanup_natter_processes(port_names=None):
     
     if port_names is None:
         # 清理所有进程
-        logger.info("清理所有 natter 进程...")
+        logger.info("🧹 清理所有 natter 进程...")
         ports_to_clean = list(natter_processes.keys())
     else:
         # 只清理指定的进程
-        logger.info(f"清理指定的 natter 进程: {', '.join(port_names)}")
+        logger.info(f"🧹 清理指定的 natter 进程: {', '.join(port_names)}")
         ports_to_clean = port_names
     
     for port_name in ports_to_clean:
@@ -802,7 +805,7 @@ def restart_single_natter(port_name):
     """
     global natter_processes
     
-    logger.info(f"准备重启 {port_name} 的 natter 进程...")
+    logger.info("🔍 准备重启 {port_name} 的 natter 进程...")
     
     # 1. 获取原来的配置
     if port_name in natter_processes:
@@ -834,7 +837,7 @@ def restart_single_natter(port_name):
         if port_name == 'server_port':
             if actual_local_port != old_local_port:
                 logger.warning(f"server_port 的本地端口发生变化 ({old_local_port} -> {actual_local_port})")
-                logger.info("需要重启 frps 以应用新端口配置...")
+                logger.info("⚙️  需要重启 frps 以应用新端口配置...")
                 
                 # 更新配置
                 if not update_frps_config(actual_local_port):
@@ -863,7 +866,7 @@ def restart_single_natter(port_name):
             # 更新 TXT 记录
             update_cloudflare_txt_record(port_mapping)
         
-        logger.info(f"{port_name} 重启成功")
+        logger.info(f"✅ {port_name} 重启成功")
         return True
     else:
         logger.error(f"{port_name} 重启失败")
@@ -872,32 +875,37 @@ def restart_single_natter(port_name):
 
 def main():
     """主循环"""
-    logger.info("Stun_Frps 服务启动")
-    logger.info(f"配置文件: {STUN_PORT_CONFIG}")
-    logger.info(f"Natter路径: {NATTER_PATH}")
-    logger.info(f"frps路径: {FRPS_EXE_PATH}")
-    logger.info(f"域名: {DOMAIN}")
-    logger.info(f"检查间隔: {CHECK_INTERVAL} 秒")
+    logger.info("")
+    logger.info("="*70)
+    logger.info("🌟 Stun_Frps 服务启动")
+    logger.info("="*70)
+    logger.info(f"📁 配置文件: {STUN_PORT_CONFIG}")
+    logger.info(f"🔧 Natter路径: {NATTER_PATH}")
+    logger.info(f"🔧 frps路径: {FRPS_EXE_PATH}")
+    logger.info(f"🌐 域名: {DOMAIN}")
+    logger.info(f"⏱️  检查间隔: {CHECK_INTERVAL} 秒")
+    logger.info("-"*70)
     
     # 启动前验证
-    logger.info("\n验证配置和文件...")
+    logger.info("🔍 验证配置和文件...")
     if not validate_natter_executable():
-        logger.error("Natter 验证失败，程序退出")
+        logger.error("❌ Natter 验证失败，程序退出")
         sys.exit(1)
     
     if not validate_frps_executable():
-        logger.error("frps 验证失败，程序退出")
+        logger.error("❌ frps 验证失败，程序退出")
         sys.exit(1)
     
     if not validate_cloudflare_config():
-        logger.error("Cloudflare 配置验证失败，程序退出")
+        logger.error("❌ Cloudflare 配置验证失败，程序退出")
         sys.exit(1)
     
-    logger.info("所有验证通过")
+    logger.info("✅ 所有验证通过")
+    logger.info("")
     
     # 初始执行一次
     if not perform_stun_and_update():
-        logger.error("初始打洞失败，程序退出")
+        logger.error("❌ 初始打洞失败，程序退出")
         sys.exit(1)
     
     # 定期检查
@@ -905,7 +913,7 @@ def main():
         global frps_process  # 声明为全局变量以便修改
         try:
             time.sleep(CHECK_INTERVAL)
-            logger.info("\n定期检查 natter 进程状态...")
+            logger.info("🔄 定期检查 natter 进程状态...")
             
             # 检查进程是否异常 (包括端口变化导致的退出)
             failed_ports = check_natter_processes()
@@ -922,11 +930,11 @@ def main():
                 )
                 
                 if need_full_restart:
-                    logger.info("关键端口异常或大量端口失败，执行全量重启...")
+                    logger.warning("⚠️  关键端口异常或大量端口失败，执行全量重启...")
                     
                     # 先停止 frps 释放端口
                     if frps_process and frps_process.poll() is None:
-                        logger.info("停止 frps 以释放端口...")
+                        logger.info("🛑 停止 frps 以释放端口...")
                         safe_terminate_process(frps_process, "frps", timeout_terminate=5, timeout_kill=2)
                         frps_process = None
                         time.sleep(2)
@@ -938,7 +946,7 @@ def main():
                     if not perform_stun_and_update():
                         logger.warning("全量重启失败，将在下次检查时继续尝试")
                 else:
-                    logger.info("仅重启异常端口，不影响正常运行的端口...")
+                    logger.info("🔧 仅重启异常端口，不影响正常运行的端口...")
                     
                     # 逐个重启失败的端口
                     success_count = 0
@@ -948,12 +956,13 @@ def main():
                         else:
                             logger.warning(f"{port_name} 重启失败，将在下次检查时继续尝试")
                     
-                    logger.info(f"成功重启 {success_count}/{len(failed_ports)} 个端口")
+                    logger.info(f"✅ 成功重启 {success_count}/{len(failed_ports)} 个端口")
             else:
-                logger.info("所有 natter 进程运行正常")
+                logger.info("✅ 所有 natter 进程运行正常")
                 
         except KeyboardInterrupt:
-            logger.info("\n接收到退出信号，正在清理...")
+            logger.info("")
+            logger.info("⚠️  接收到退出信号，正在清理...")
             break
         except Exception as e:
             logger.error(f"主循环异常: {e}", exc_info=True)
@@ -963,14 +972,18 @@ def main():
             time.sleep(60)
     
     # 清理资源
-    logger.info("清理资源...")
+    logger.info("🧹 清理资源...")
     cleanup_natter_processes()
     
     if frps_process and frps_process.poll() is None:
-        logger.info("停止 frps 进程...")
+        logger.info("🛑 停止 frps 进程...")
         safe_terminate_process(frps_process, "frps", timeout_terminate=5, timeout_kill=2)
     
-    logger.info("服务已停止。")
+    logger.info("")
+    logger.info("="*70)
+    logger.info("👋 服务已停止")
+    logger.info("="*70)
+    logger.info("")
 
 
 if __name__ == '__main__':
