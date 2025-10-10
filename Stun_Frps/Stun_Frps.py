@@ -34,7 +34,17 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 STUN_PORT_CONFIG = os.path.join(BASE_DIR, 'Stun_Port.toml')
-NATTER_PATH = os.path.join(BASE_DIR, 'Natter', 'natter.py')
+
+# Natter 路径：根据是否打包和操作系统选择
+if getattr(sys, 'frozen', False):
+    # 打包后：使用编译的可执行文件
+    if platform.system() == 'Windows':
+        NATTER_PATH = os.path.join(BASE_DIR, 'Natter', 'natter.exe')
+    else:
+        NATTER_PATH = os.path.join(BASE_DIR, 'Natter', 'natter')
+else:
+    # 源码运行：使用 Python 脚本
+    NATTER_PATH = os.path.join(BASE_DIR, 'Natter', 'natter.py')
 
 # frps可执行文件和配置文件路径（根据操作系统自动选择）
 FRPS_EXE_PATH = ''
@@ -223,10 +233,15 @@ def run_natter_for_port(port_name, local_port=0, max_retries=3):
         try:
             logger.info(f"正在为 {port_name} (本地端口: {local_port if local_port > 0 else '自动分配'}) 启动 natter 打洞...")
             
-            # 构造natter命令: python natter.py -q -b <端口>
+            # 构造natter命令
             # -q 参数: 当映射地址改变时自动退出,便于检测端口变化
-            python_cmd = sys.executable
-            cmd = [python_cmd, NATTER_PATH, '-q']
+            if getattr(sys, 'frozen', False):
+                # 打包后：直接运行可执行文件
+                cmd = [NATTER_PATH, '-q']
+            else:
+                # 源码运行：使用 Python 解释器运行脚本
+                python_cmd = sys.executable
+                cmd = [python_cmd, NATTER_PATH, '-q']
             
             # 添加绑定端口参数
             if local_port > 0:

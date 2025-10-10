@@ -41,6 +41,11 @@ jobs:
         cd Stun_Frps
         pyinstaller --onefile --icon=NONE --name stun_frps_linux_x64 Stun_Frps.py
         
+        # 打包 Natter
+        cd Natter
+        pyinstaller --onefile --icon=NONE --name natter natter.py
+        cd ..
+        
         # 创建发布目录结构
         mkdir -p ../release/stun_frps_linux_x64/Linux
         mkdir -p ../release/stun_frps_linux_x64/Natter
@@ -53,7 +58,9 @@ jobs:
         cp Stun_Port.toml ../release/stun_frps_linux_x64/
         cp Linux/frps ../release/stun_frps_linux_x64/Linux/
         cp Linux/frps.toml ../release/stun_frps_linux_x64/Linux/
-        cp Natter/natter.py ../release/stun_frps_linux_x64/Natter/
+        
+        # 复制 Natter 可执行文件
+        cp Natter/dist/natter ../release/stun_frps_linux_x64/Natter/
         
         # 创建 README
         cat > ../release/stun_frps_linux_x64/README.txt << 'EOF'
@@ -114,6 +121,11 @@ jobs:
         cd Stun_Frps
         pyinstaller --onefile --icon=NONE --name stun_frps_windows_x64 Stun_Frps.py
         
+        # 打包 Natter
+        cd Natter
+        pyinstaller --onefile --icon=NONE --name natter natter.py
+        cd ..
+        
         # 创建发布目录结构
         New-Item -ItemType Directory -Force -Path ..\release\stun_frps_windows_x64\Windows
         New-Item -ItemType Directory -Force -Path ..\release\stun_frps_windows_x64\Natter
@@ -126,7 +138,9 @@ jobs:
         Copy-Item Stun_Port.toml ..\release\stun_frps_windows_x64\
         Copy-Item Windows\frps.exe ..\release\stun_frps_windows_x64\Windows\
         Copy-Item Windows\frps.toml ..\release\stun_frps_windows_x64\Windows\
-        Copy-Item Natter\natter.py ..\release\stun_frps_windows_x64\Natter\
+        
+        # 复制 Natter 可执行文件
+        Copy-Item Natter\dist\natter.exe ..\release\stun_frps_windows_x64\Natter\
         
         # 创建 README
         @"
